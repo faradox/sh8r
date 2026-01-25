@@ -1,0 +1,120 @@
+{
+  "meta": {
+    "title": "Hyperdimensional Journey",
+    "author": "sh8r",
+    "description": "A raymarched voyage through infinite fractal tunnels and kaleidoscopic hyperspace. Beat-reactive geometry morphs between dimensions.",
+    "tags": ["raymarching", "fractal", "tunnel", "psychedelic", "beat-reactive"]
+  },
+  "params": [
+    {
+      "name": "speed",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 2.0,
+      "step": 0.01,
+      "label": "Travel Speed",
+      "group": "Motion"
+    },
+    {
+      "name": "rotation",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Rotation",
+      "group": "Motion"
+    },
+    {
+      "name": "folds",
+      "type": "int",
+      "default": 6,
+      "min": 3,
+      "max": 12,
+      "label": "Kaleidoscope Folds",
+      "group": "Geometry"
+    },
+    {
+      "name": "complexity",
+      "type": "float",
+      "default": 0.7,
+      "min": 0.1,
+      "max": 1.5,
+      "step": 0.01,
+      "label": "Fractal Complexity",
+      "group": "Geometry"
+    },
+    {
+      "name": "dimension",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Dimension Blend",
+      "group": "Geometry"
+    },
+    {
+      "name": "warp",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Space Warp",
+      "group": "Geometry"
+    },
+    {
+      "name": "glow",
+      "type": "float",
+      "default": 1.2,
+      "min": 0.2,
+      "max": 3.0,
+      "step": 0.01,
+      "label": "Glow Intensity",
+      "group": "Rendering"
+    },
+    {
+      "name": "palette",
+      "type": "enum",
+      "default": "cosmic",
+      "values": ["cosmic", "neon", "fire", "ice", "void", "rainbow"],
+      "label": "Color Palette",
+      "group": "Colors"
+    },
+    {
+      "name": "saturation",
+      "type": "float",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 2.0,
+      "step": 0.01,
+      "label": "Saturation",
+      "group": "Colors"
+    },
+    {
+      "name": "beatReact",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Beat Reactivity",
+      "group": "Audio"
+    },
+    {
+      "name": "pulseMode",
+      "type": "enum",
+      "default": "geometry",
+      "values": ["geometry", "color", "zoom", "all"],
+      "label": "Pulse Mode",
+      "group": "Audio"
+    }
+  ],
+  "shader": {
+    "language": "glsl",
+    "entry": "shader",
+    "code": "mat2 rot(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }\n\nvec3 getPalette(float t, int mode) {\n    vec3 a, b, c, d;\n    if (mode == 0) { a = vec3(0.5, 0.5, 0.5); b = vec3(0.5, 0.5, 0.5); c = vec3(1.0, 0.7, 0.4); d = vec3(0.0, 0.15, 0.2); }\n    else if (mode == 1) { a = vec3(0.5, 0.5, 0.5); b = vec3(0.5, 0.5, 0.5); c = vec3(1.0, 1.0, 0.0); d = vec3(0.8, 0.9, 0.3); }\n    else if (mode == 2) { a = vec3(0.5, 0.5, 0.5); b = vec3(0.5, 0.5, 0.5); c = vec3(1.0, 0.0, 0.0); d = vec3(0.0, 0.33, 0.67); }\n    else if (mode == 3) { a = vec3(0.5, 0.5, 0.8); b = vec3(0.5, 0.5, 0.5); c = vec3(0.0, 1.0, 1.0); d = vec3(0.0, 0.1, 0.2); }\n    else if (mode == 4) { a = vec3(0.1, 0.1, 0.2); b = vec3(0.3, 0.2, 0.4); c = vec3(0.8, 0.4, 1.0); d = vec3(0.0, 0.5, 0.5); }\n    else { a = vec3(0.5, 0.5, 0.5); b = vec3(0.5, 0.5, 0.5); c = vec3(1.0, 1.0, 1.0); d = vec3(0.0, 0.33, 0.67); }\n    return a + b * cos(6.28318 * (c * t + d));\n}\n\nvoid kaleido(inout vec2 p, int n) {\n    float angle = 3.14159 / float(n);\n    for (int i = 0; i < 12; i++) {\n        if (i >= n) break;\n        p = abs(p);\n        p *= rot(angle);\n    }\n}\n\nfloat sdBox(vec3 p, vec3 b) {\n    vec3 q = abs(p) - b;\n    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);\n}\n\nfloat fractal(vec3 p, float morph) {\n    float scale = 2.0 + morph * 0.5;\n    float d = sdBox(p, vec3(1.0));\n    float s = 1.0;\n    for (int i = 0; i < 5; i++) {\n        vec3 a = mod(p * s, 2.0) - 1.0;\n        s *= scale;\n        vec3 r = abs(1.0 - 3.0 * abs(a));\n        float da = max(r.x, r.y);\n        float db = max(r.y, r.z);\n        float dc = max(r.z, r.x);\n        float c = (min(da, min(db, dc)) - 1.0) / s;\n        d = max(d, c);\n    }\n    return d;\n}\n\nfloat hyperTunnel(vec3 p, float twist, float morph) {\n    float angle = atan(p.y, p.x);\n    float r = length(p.xy);\n    p.xy = vec2(r - 2.0, angle * 0.5 + p.z * twist);\n    vec2 cell = floor(p.xz);\n    p.xz = fract(p.xz) - 0.5;\n    float d1 = length(p) - 0.3 - morph * 0.1;\n    float d2 = sdBox(p, vec3(0.2 + morph * 0.1));\n    return mix(d1, d2, morph);\n}\n\nfloat scene(vec3 p, float t, float dim, float warpAmt, float morphVal) {\n    p.xy *= rot(t * 0.1);\n    p.xz *= rot(t * 0.07);\n    float warpPhase = sin(t * 0.3) * warpAmt;\n    p += sin(p.zxy * 0.5 + t) * warpPhase;\n    float d1 = fractal(p * 0.5, morphVal) * 2.0;\n    float d2 = hyperTunnel(p, 0.2 + sin(t * 0.1) * 0.1, morphVal);\n    return mix(d1, d2, dim);\n}\n\nvec3 shader(vec2 uv, float time) {\n    float t = time * speed;\n    float beatPulse = pow(1.0 - beat, 4.0) * beatReact;\n    float morphVal = complexity + (pulseMode == 0 || pulseMode == 3 ? beatPulse * 0.3 : 0.0);\n    float zoomMod = 1.0 + (pulseMode == 2 || pulseMode == 3 ? beatPulse * 0.2 : 0.0);\n    float colorShift = (pulseMode == 1 || pulseMode == 3 ? beatPulse : 0.0);\n    uv = uv * 2.0 - 1.0;\n    uv.x *= resolution.x / resolution.y;\n    kaleido(uv, folds);\n    uv *= rot(t * rotation);\n    vec3 ro = vec3(0.0, 0.0, t * 3.0);\n    vec3 rd = normalize(vec3(uv * zoomMod, 1.5));\n    rd.xy *= rot(sin(t * 0.2) * 0.3);\n    rd.xz *= rot(cos(t * 0.15) * 0.2);\n    float totalDist = 0.0;\n    float minDist = 1000.0;\n    vec3 col = vec3(0.0);\n    float glowAccum = 0.0;\n    for (int i = 0; i < 80; i++) {\n        vec3 p = ro + rd * totalDist;\n        float d = scene(p, t, dimension, warp, morphVal);\n        minDist = min(minDist, d);\n        glowAccum += 0.02 / (0.1 + abs(d));\n        if (d < 0.001 || totalDist > 50.0) break;\n        totalDist += d * 0.7;\n    }\n    float depth = totalDist / 50.0;\n    float edge = 1.0 - smoothstep(0.0, 0.1, minDist);\n    float colorIndex = depth * 3.0 + t * 0.5 + edge * 2.0 + colorShift;\n    col = getPalette(colorIndex, palette);\n    col *= 1.0 - depth * 0.8;\n    col += glowAccum * glow * 0.03 * getPalette(colorIndex + 0.2, palette);\n    col += edge * 0.5 * getPalette(colorIndex + 0.5, palette);\n    float vignette = 1.0 - length(uv) * 0.3;\n    col *= vignette;\n    col = mix(vec3(dot(col, vec3(0.299, 0.587, 0.114))), col, saturation);\n    col = pow(col, vec3(0.85));\n    col = clamp(col, 0.0, 1.0);\n    return col;\n}"
+  }
+}
