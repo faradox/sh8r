@@ -1,0 +1,88 @@
+{
+  "meta": {
+    "author": "sh8r",
+    "title": "Julia Drift",
+    "description": "A Julia set travelling the rim of the Mandelbrot set, endlessly turning from spirals to dragons to dust, pushed along by the beat.",
+    "tags": [
+      "fractal",
+      "julia",
+      "journey",
+      "beat-reactive"
+    ]
+  },
+  "params": [
+    {
+      "name": "drift",
+      "type": "float",
+      "default": 0.15,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Drift",
+      "group": "Journey",
+      "lag": 3,
+      "integrate": "time"
+    },
+    {
+      "name": "kick",
+      "type": "float",
+      "default": 0.25,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Beat Kick",
+      "group": "Journey",
+      "lag": 2,
+      "integrate": "beat"
+    },
+    {
+      "name": "form",
+      "type": "float",
+      "default": 0.0,
+      "min": -1.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Form (solid / lace / dust)",
+      "group": "Shape",
+      "lag": 5
+    },
+    {
+      "name": "depth",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 2.5,
+      "step": 0.01,
+      "label": "Zoom",
+      "group": "Shape",
+      "lag": 6
+    },
+    {
+      "name": "colour",
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Colour",
+      "group": "Light",
+      "lag": 4
+    },
+    {
+      "name": "glow",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Filaments",
+      "group": "Light",
+      "lag": 3
+    }
+  ],
+  "shader": {
+    "language": "glsl",
+    "entry": "shader",
+    "code": "// Julia Drift: a Julia set whose constant c travels around the rim of the\n// Mandelbrot set's main cardioid. Along that rim tiny moves of c reshape the\n// whole set, so a slow journey keeps reinventing it: spirals, dragons,\n// rabbits, dust. `drift` and `kick` arrive integrated, so their sum is the\n// journey position.\n\n#define TAU 6.28318531\n\nmat2 rot(float a) {\n  float c = cos(a);\n  float s = sin(a);\n  return mat2(c, -s, s, c);\n}\n\nvec3 palette(float t, float j) {\n  // The palette's own character drifts along the journey too.\n  vec3 d = vec3(0.0, 0.33, 0.67) + 0.15 * vec3(sin(j * 0.05), 0.0, cos(j * 0.037));\n  return 0.5 + 0.5 * cos(TAU * (t + d));\n}\n\nvec3 shader(vec2 uv, float time) {\n  float j = drift + kick;\n  vec2 p = (uv - 0.5) * vec2(resolution.x / resolution.y, 1.0);\n\n  // Form sets where c sits against the rim (inside = solid, rim = lace,\n  // outside = dust). Near the middle the journey swings it by itself;\n  // pushing the control to an end holds the set there.\n  float roam = 1.0 - abs(form);\n  float edge = form + roam * 0.7 * sin(j * 0.23) * sin(j * 0.071 + 1.0);\n  float theta = j * 0.09 + 2.2;\n  vec2 c = 0.5 * vec2(cos(theta), sin(theta)) -\n    0.25 * vec2(cos(2.0 * theta), sin(2.0 * theta));\n  c *= 1.0 + edge * 0.07;\n\n  // Camera: slow spin, breathing zoom, focus that wanders more when deep.\n  float zoom = exp(-depth);\n  float span = zoom * (1.35 + 0.25 * sin(j * 0.061));\n  vec2 focus = (1.0 - zoom) * 0.4 * vec2(sin(j * 0.047), cos(j * 0.059));\n  vec2 w = rot(j * 0.04) * p * span * 2.0 + focus;\n\n  vec2 axis = vec2(cos(j * 0.13), sin(j * 0.13));\n  float trap = 1e3;\n  float n = 0.0;\n  float m2 = 0.0;\n  for (int i = 0; i < 90; i++) {\n    w = vec2(w.x * w.x - w.y * w.y, 2.0 * w.x * w.y) + c;\n    m2 = dot(w, w);\n    trap = min(trap, abs(dot(w, axis)));\n    if (m2 > 64.0) break;\n    n += 1.0;\n  }\n\n  float hue = colour + j * 0.021;\n  vec3 col;\n  if (m2 > 64.0) {\n    float sn = n - log2(log2(m2)) + 4.0;\n    vec3 band = palette(sn * 0.045 + hue, j);\n    col = band * band * 1.4 * (1.0 - exp(-sn * 0.05));\n  } else {\n    col = palette(hue + 0.5 + trap, j) * 0.08;\n  }\n  // Orbit trap filaments: light that follows the set's inner structure.\n  col += palette(hue + 0.3 + trap * 0.6, j) * glow * 0.012 / (trap + 0.012);\n\n  col *= 1.0 - 0.45 * smoothstep(0.3, 1.0, length(p));\n  return clamp(col, 0.0, 1.0);\n}\n"
+  }
+}

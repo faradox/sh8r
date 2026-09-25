@@ -6,6 +6,13 @@ import {
 } from "./fragment.js";
 import { uniformValue, uploadUniform } from "./uniforms.js";
 import { AdaptiveScale } from "./adaptiveScale.js";
+import {
+  beatAdvance,
+  createMotion,
+  frameStep,
+  hasMotion,
+  stepMotion,
+} from "./motion.js";
 
 const CONTEXT_OPTIONS = {
   alpha: false,
@@ -195,10 +202,12 @@ export class ShaderEngine {
       builtins[name] = gl.getUniformLocation(program, name);
     }
     const params = shaderParams(manifest)
-      .map((param) => ({
-        param,
-        location: gl.getUniformLocation(program, param.name),
-      }))
+      .map((param) => {
+        const location = gl.getUniformLocation(program, param.name);
+        const target = uniformValue(param, this.params[param.name]);
+        const motion = hasMotion(param) ? createMotion(param, target) : null;
+        return { param, location, target, motion };
+      })
       .filter((entry) => entry.location !== null);
 
     gl.useProgram(program);
@@ -207,7 +216,15 @@ export class ShaderEngine {
     gl.enableVertexAttribArray(position);
     gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
 
-    this.current = { program, builtins, params, startTime: performance.now() };
+    this.current = {
+      program,
+      builtins,
+      params,
+      moving: params.filter((entry) => entry.motion),
+      startTime: performance.now(),
+      lastFrame: null,
+      lastBeat: null,
+    };
     this.paramsDirty = true;
     this.updateLoop();
   }
@@ -258,7 +275,8 @@ export class ShaderEngine {
   frame(now) {
     this.rafId = requestAnimationFrame(this.frame);
     const gl = this.gl;
-    const { builtins, params, startTime } = this.current;
+    const current = this.current;
+    const { builtins, params, moving, startTime } = current;
 
     if (this.scaler.sample(now)) this.needsResize = true;
     if (this.needsResize) this.applySize();
@@ -271,12 +289,34 @@ export class ShaderEngine {
     gl.uniform1f(builtins.bar, bar);
 
     if (this.paramsDirty) {
-      for (const { param, location } of params) {
-        const value = uniformValue(param, this.params[param.name]);
-        uploadUniform(gl, location, param.type, value);
+      for (const entry of params) {
+        entry.target = uniformValue(entry.param, this.params[entry.param.name]);
+        if (!entry.motion) {
+          uploadUniform(gl, entry.location, entry.param.type, entry.target);
+        }
       }
       this.paramsDirty = false;
     }
+
+    if (moving.length) {
+      const elapsed = current.lastFrame === null ? 0 : now - current.lastFrame;
+      const dt = frameStep(elapsed / 1000);
+      let beats = 0;
+      if (current.lastBeat === null) {
+        current.lastBeat = beat;
+      } else {
+        const advance = beatAdvance(current.lastBeat, beat);
+        if (advance !== null) {
+          beats = advance;
+          current.lastBeat = beat;
+        }
+      }
+      for (const entry of moving) {
+        const value = stepMotion(entry.motion, entry.target, dt, beats);
+        uploadUniform(gl, entry.location, entry.param.type, value);
+      }
+    }
+    current.lastFrame = now;
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 

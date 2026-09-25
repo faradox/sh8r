@@ -64,6 +64,37 @@ Each parameter is exposed to GLSL as a uniform with the same name.
 - `group`: optional grouping label for UI sections.
 - `ui`: optional UI hint (`slider`, `knob`, `pad`, `color`, etc.).
 - `unit`: optional unit label (`hz`, `bpm`, `%`, etc.).
+- `lag`: seconds the shader takes to follow a change (see Motion below).
+- `integrate`: `"time"` or `"beat"`. The uniform carries the running total
+  of the value instead of the value itself (see Motion below).
+
+### Motion
+
+Shaders are stateless, so these two fields let the renderer keep state for
+them:
+
+- `lag` (0..60, for `float`, vector and `color` params) eases the uniform
+  towards the VJ's value instead of jumping. The curve starts gently and
+  gets half way after about 0.84 x `lag` seconds, so a control moved now
+  reshapes the picture over the next few seconds. Loading a preset glides
+  between looks in the same way. A newly installed shader starts at its
+  values without gliding.
+- `integrate` (`float` only) uploads the running total of the (lagged)
+  value. With `"time"`, the value is added every second, so a speed control
+  changes the rate without the phase jumping. With `"beat"`, the value is
+  added once per beat, and most of each step lands on the beat before
+  easing out towards the next one. The pattern surges forward with the
+  music and never snaps back.
+
+A typical journey variable combines both:
+
+```glsl
+// drift: integrate "time"; kick: integrate "beat"
+float journey = drift + kick;
+```
+
+Totals restart at 0 when the live shader changes, like `time`. Each screen
+keeps its own totals, so two screens can be slightly out of phase.
 
 ## Built-in uniforms
 

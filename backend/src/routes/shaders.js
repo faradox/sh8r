@@ -32,6 +32,8 @@ const paramSchema = z
     group: z.string().optional(),
     ui: z.string().optional(),
     unit: z.string().optional(),
+    lag: z.number().min(0).max(60).optional(),
+    integrate: z.enum(["time", "beat"]).optional(),
   })
   .passthrough();
 
@@ -75,6 +77,9 @@ export function validateManifest(manifest) {
     }
     if (param.type === "enum" && !param.values?.length) {
       return { ok: false, error: "Enum param needs values: " + param.name };
+    }
+    if (param.integrate && param.type !== "float") {
+      return { ok: false, error: "Only float params integrate: " + param.name };
     }
     names.add(param.name);
   }
