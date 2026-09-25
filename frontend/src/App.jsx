@@ -9,25 +9,20 @@ const navItems = [
   { path: "/vj", label: "VJ" },
   { path: "/submit", label: "Submit" },
   { path: "/debug", label: "Debug" },
+  { path: "/live", label: "Live" },
 ];
 
 export default function App() {
   const location = useLocation();
-  const isLive =
-    location.pathname === "/" || location.pathname === "/live";
+  const isLive = location.pathname === "/" || location.pathname === "/live";
 
   return (
     <div className={`app${isLive ? " live" : ""}`}>
       {!isLive && (
         <nav className="topbar">
+          <span className="brand">sh8r</span>
           {navItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              style={({ isActive }) => ({
-                opacity: isActive ? 1 : 0.6,
-              })}
-            >
+            <NavLink key={item.path} to={item.path}>
               {item.label}
             </NavLink>
           ))}
@@ -40,6 +35,7 @@ export default function App() {
           <Route path="/vj" element={<VJView />} />
           <Route path="/submit" element={<SubmitView />} />
           <Route path="/debug" element={<DebugView />} />
+          <Route path="*" element={<p className="label">Not found.</p>} />
         </Routes>
       </main>
     </div>

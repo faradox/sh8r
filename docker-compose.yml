@@ -16,7 +16,8 @@ services:
     container_name: sh8r-frontend
     restart: unless-stopped
     ports:
-      - "${SH8R_FRONTEND_PORT:-8080}:80"
+      # Loopback only: public traffic must pass the nginx auth rules.
+      - "127.0.0.1:${SH8R_FRONTEND_PORT:-8080}:80"
     environment:
       - VITE_API_URL=${SH8R_API_URL:-}
       - VITE_WS_URL=${SH8R_WS_URL:-}
@@ -65,7 +66,7 @@ services:
     container_name: sh8r-backend
     restart: unless-stopped
     ports:
-      - "${SH8R_BACKEND_PORT:-3001}:3001"
+      - "127.0.0.1:${SH8R_BACKEND_PORT:-3001}:3001"
     environment:
       <<: [*all]
       PORT: 3001

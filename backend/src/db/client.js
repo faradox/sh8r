@@ -15,13 +15,13 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL || DEFAULT_DATABASE_URL,
 });
 
-export async function query(text, params) {
-  const client = await pool.connect();
-  try {
-    return await client.query(text, params);
-  } finally {
-    client.release();
-  }
+// Without a listener, an idle client losing its connection crashes the process.
+pool.on("error", (error) => {
+  console.error("Postgres pool error:", error.message);
+});
+
+export function query(text, params) {
+  return pool.query(text, params);
 }
 
 export async function initSchema() {

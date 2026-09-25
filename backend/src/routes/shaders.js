@@ -5,17 +5,30 @@ import {
   createShader,
   deleteShader,
 } from "../db/shaders.js";
+import { PARAM_TYPES, isValidIdentifier } from "../params.js";
+import { parseId } from "./ids.js";
+
+// Names the fragment wrapper declares itself; params must not shadow them.
+const RESERVED_NAMES = new Set([
+  "time",
+  "resolution",
+  "bpm",
+  "beat",
+  "bar",
+  "shader",
+  "main",
+]);
 
 const paramSchema = z
   .object({
     name: z.string(),
-    type: z.string(),
+    type: z.enum(PARAM_TYPES),
     default: z.any().optional(),
     min: z.number().optional(),
     max: z.number().optional(),
-    step: z.number().optional(),
+    step: z.number().positive().optional(),
     label: z.string().optional(),
-    values: z.array(z.any()).optional(),
+    values: z.array(z.union([z.string(), z.number()])).optional(),
     group: z.string().optional(),
     ui: z.string().optional(),
     unit: z.string().optional(),
@@ -24,7 +37,7 @@ const paramSchema = z
 
 const manifestSchema = z.object({
   meta: z.object({
-    title: z.string().min(1),
+    title: z.string().trim().min(1),
     author: z.string().optional(),
     description: z.string().optional(),
     tags: z.array(z.string()).optional(),
@@ -37,14 +50,16 @@ const manifestSchema = z.object({
   }),
 });
 
-function isValidIdentifier(name) {
-  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
+function formatZodError(error) {
+  return error.issues
+    .map((issue) => `${issue.path.join(".") || "manifest"}: ${issue.message}`)
+    .join("; ");
 }
 
-function validateManifest(manifest) {
+export function validateManifest(manifest) {
   const parsed = manifestSchema.safeParse(manifest);
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.format() };
+    return { ok: false, error: formatZodError(parsed.error) };
   }
   const params = parsed.data.params || [];
   const names = new Set();
@@ -52,19 +67,34 @@ function validateManifest(manifest) {
     if (!isValidIdentifier(param.name)) {
       return { ok: false, error: "Invalid param name: " + param.name };
     }
+    if (RESERVED_NAMES.has(param.name) || param.name.startsWith("gl_")) {
+      return { ok: false, error: "Reserved param name: " + param.name };
+    }
     if (names.has(param.name)) {
       return { ok: false, error: "Duplicate param name: " + param.name };
     }
+    if (param.type === "enum" && !param.values?.length) {
+      return { ok: false, error: "Enum param needs values: " + param.name };
+    }
     names.add(param.name);
   }
-  return { ok: true, value: parsed.data };
+  return { ok: true, value: { ...parsed.data, params } };
 }
 
 function normalizeManifestInput(body) {
-  if (body?.manifest && typeof body.manifest === "string") {
+  if (typeof body?.manifest === "string") {
     return JSON.parse(body.manifest);
   }
   return body?.manifest ?? null;
+}
+
+function rawGlslManifest(body) {
+  return {
+    meta: { title: body.title?.trim() || "Raw GLSL" },
+    params: [],
+    shader: { language: "glsl", entry: "shader", code: body.glsl },
+    raw: true,
+  };
 }
 
 export default async function shaderRoutes(fastify, options) {
@@ -75,7 +105,8 @@ export default async function shaderRoutes(fastify, options) {
   });
 
   fastify.get("/:id", async (request, reply) => {
-    const shader = await getShaderById(request.params.id);
+    const id = parseId(request.params.id);
+    const shader = id && (await getShaderById(id));
     if (!shader) {
       return reply.code(404).send({ error: "Shader not found" });
     }
@@ -84,52 +115,35 @@ export default async function shaderRoutes(fastify, options) {
 
   fastify.post("/", async (request, reply) => {
     const body = request.body || {};
-
-    if (body.glsl && !body.manifest) {
-      const manifest = {
-        meta: { title: body.title || "Raw GLSL" },
-        params: [],
-        shader: {
-          language: "glsl",
-          entry: "shader",
-          code: body.glsl,
-        },
-        raw: true,
-      };
-      const { id } = await createShader({
-        manifest,
-        code: body.glsl,
-        meta: manifest.meta,
-      });
-      if (!state.state.shaderId) {
-        await state.setShader(id);
-      }
-      return reply.code(201).send({ id });
-    }
-
     let manifest;
-    try {
-      manifest = normalizeManifestInput(body);
-    } catch (error) {
-      return reply.code(400).send({ error: "Invalid JSON manifest" });
-    }
 
-    if (!manifest) {
-      return reply.code(400).send({ error: "Manifest is required" });
-    }
-
-    const validation = validateManifest(manifest);
-    if (!validation.ok) {
-      return reply.code(400).send({ error: validation.error });
+    if (typeof body.glsl === "string" && body.glsl.trim() && !body.manifest) {
+      manifest = rawGlslManifest(body);
+    } else {
+      let input;
+      try {
+        input = normalizeManifestInput(body);
+      } catch {
+        return reply.code(400).send({ error: "Invalid JSON manifest" });
+      }
+      if (!input) {
+        return reply.code(400).send({ error: "Manifest is required" });
+      }
+      const validation = validateManifest(input);
+      if (!validation.ok) {
+        return reply.code(400).send({ error: validation.error });
+      }
+      manifest = validation.value;
     }
 
     const { id } = await createShader({
-      manifest: validation.value,
-      code: validation.value.shader.code,
-      meta: validation.value.meta,
+      manifest,
+      code: manifest.shader.code,
+      meta: manifest.meta,
     });
 
-    if (!state.state.shaderId) {
+    state.broadcast({ type: "shaders:changed", payload: {} });
+    if (!state.state.shaderId || body.goLive === true) {
       await state.setShader(id);
     }
 
@@ -137,16 +151,13 @@ export default async function shaderRoutes(fastify, options) {
   });
 
   fastify.delete("/:id", async (request, reply) => {
-    const shaderId = request.params.id;
-    const deleted = await deleteShader(shaderId);
+    const id = parseId(request.params.id);
+    const deleted = id && (await deleteShader(id));
     if (!deleted) {
       return reply.code(404).send({ error: "Shader not found" });
     }
-    if (state.state.shaderId === Number(shaderId)) {
-      state.state.shaderId = null;
-      state.state.shaderManifest = null;
-      state.state.params = {};
-    }
+    await state.handleShaderDeleted(id);
+    state.broadcast({ type: "shaders:changed", payload: {} });
     return reply.code(204).send();
   });
 }

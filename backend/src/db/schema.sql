@@ -13,3 +13,5 @@ CREATE TABLE IF NOT EXISTS presets (
   shader_id INTEGER NOT NULL REFERENCES shaders(id) ON DELETE CASCADE,
   params JSONB NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS presets_shader_id_idx ON presets (shader_id);

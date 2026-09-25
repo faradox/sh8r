@@ -4,7 +4,7 @@
 
 sh8r is a live VideoJockey tool for submitting and performing GLSL shaders.
 The app exposes three primary views: Submit, VJ, and Live, plus a Debug view.
-The VJ controls shader parameters in real time via WebSockets.
+The VJ controls shader parameters in real time; all screens receive state via WebSockets.
 
 ## Features
 
@@ -14,6 +14,41 @@ The VJ controls shader parameters in real time via WebSockets.
 - Preset save/load per shader
 - BPM/beat/bar uniforms for timing sync
 - Live fullscreen view + optional debug overlay
+
+## Views
+
+- `/live` (also `/`): fullscreen output. Double-click or press `F` for
+  fullscreen; the cursor hides when idle and the screen is kept awake.
+  URL options: `?debug` (fps, resolution and compile errors overlay),
+  `?scale=0.5` (fixed render scale, disables adaptive resolution),
+  `?dpr=2` (render above CSS resolution on high-DPI screens),
+  `?maxpx=8294400` (raise the default 1920x1080 pixel cap, e.g. for 4K).
+- `/vj`: shader selection, generated controls (double-click a label to reset
+  it), presets, BPM with tap tempo and downbeat sync. The preview can be
+  hidden to save battery on the controlling device.
+- `/submit`: manifest or raw GLSL with an in-browser compile check and preview.
+- `/debug`: connection, clock sync, renderer stats, uniforms, recent messages.
+
+Clients reconnect automatically after server restarts or network drops.
+
+## Access control
+
+Auth is handled by the reverse proxy (see the sh8r block in the monorepo's
+`configs/etc/nginx/sites-available/breathdance.conf`):
+
+- Public: `/live`, `/debug`, `GET /api/*` and the `/ws` socket. The socket is
+  read-only; it only answers clock pings, so viewers cannot change the show.
+- Behind basic auth: the `/vj` and `/submit` pages and every non-GET API call.
+  VJ commands (param changes, shader/preset selection, tempo) are sent as
+  `POST /api/control`, so they carry the browser's cached login.
+- Container ports are bound to 127.0.0.1, so the backend cannot be reached
+  around the proxy.
+
+## Tests
+
+```bash
+make test   # runs `npm test` in backend/ and frontend/ (node --test)
+```
 
 ## Local development
 

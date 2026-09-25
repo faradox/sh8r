@@ -9,16 +9,22 @@ const API_BASE = import.meta.env.VITE_API_URL || getDefaultApiUrl();
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
     headers: {
-      "Content-Type": "application/json",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...(options.headers || {}),
     },
-    ...options,
   });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || "Request failed");
+    const message =
+      response.status === 401
+        ? "Not authorized: log in via the VJ page"
+        : typeof error.error === "string"
+          ? error.error
+          : "Request failed";
+    throw Object.assign(new Error(message), { status: response.status });
   }
 
   if (response.status === 204) {
@@ -27,12 +33,20 @@ async function request(path, options = {}) {
   return await response.json();
 }
 
+// Shaders are immutable on the server, so a fetched shader never goes stale.
+const shaderCache = new Map();
+
 export function listShaders() {
   return request("/api/shaders");
 }
 
 export function getShader(id) {
-  return request(`/api/shaders/${id}`);
+  if (!shaderCache.has(id)) {
+    const pending = request(`/api/shaders/${id}`);
+    pending.catch(() => shaderCache.delete(id));
+    shaderCache.set(id, pending);
+  }
+  return shaderCache.get(id);
 }
 
 export function submitShader(payload) {
@@ -42,8 +56,9 @@ export function submitShader(payload) {
   });
 }
 
-export function deleteShader(id) {
-  return request(`/api/shaders/${id}`, { method: "DELETE" });
+export async function deleteShader(id) {
+  await request(`/api/shaders/${id}`, { method: "DELETE" });
+  shaderCache.delete(id);
 }
 
 export function listPresets(shaderId) {
@@ -58,9 +73,13 @@ export function createPreset(payload) {
   });
 }
 
-export function loadPreset(id) {
-  return request(`/api/presets/${id}/load`, {
+export function deletePreset(id) {
+  return request(`/api/presets/${id}`, { method: "DELETE" });
+}
+
+export function sendControl(command) {
+  return request("/api/control", {
     method: "POST",
-    body: JSON.stringify({}),
+    body: JSON.stringify(command),
   });
 }

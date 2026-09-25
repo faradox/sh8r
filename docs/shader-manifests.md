@@ -32,7 +32,11 @@ A manifest has three top-level keys:
 - `meta.title` is required.
 - `shader.entry` must be `"shader"`.
 - `params[].name` must be unique and a valid GLSL identifier.
-- The shader function must be named `shader`.
+- `params[].name` must not shadow a built-in (`time`, `resolution`, `bpm`,
+  `beat`, `bar`, `shader`, `main`, or anything starting with `gl_`).
+- `params[].type` must be one of the types below; `enum` needs `values`.
+- The shader function must be named `shader`, with the signature
+  `vec3 shader(vec2 uv, float time)`. `uv` is 0..1 across the canvas.
 
 ## Parameter types
 
@@ -69,7 +73,16 @@ These uniforms are always available:
 - `resolution` (vec2): viewport size in pixels.
 - `bpm` (float): current BPM value.
 - `beat` (float): 0..1 phase per beat.
-- `bar` (float): 0..1 phase per bar.
+- `bar` (float): 0..1 phase per bar (4 beats).
+
+`beat` and `bar` follow a server-side clock, so every connected screen pulses
+in sync. The VJ sets the tempo by typing it, tapping it (the first tap is
+beat 1 of a bar), or pressing "Sync 1" on a downbeat. `time` restarts at 0
+whenever the live shader changes.
+
+Param values arriving from the VJ are sanitized by the server: numbers are
+clamped to `min`/`max`, `int` values are truncated, and vectors are padded
+to their size.
 
 ## Example manifest
 
@@ -112,6 +125,20 @@ These uniforms are always available:
   }
 }
 ```
+
+## Previewing and errors
+
+The Submit page compiles the shader in the browser as you type and shows a
+live preview with working controls. Compiler errors refer to line numbers
+within `shader.code` (line 1 is the first line of your code), and submitting
+stays disabled until the shader compiles.
+
+## Performance
+
+The renderer adapts its resolution to hold a smooth frame rate: on a slow
+GPU a heavy shader renders at a lower internal resolution (down to 35% of
+the screen size) and is upscaled. Cheaper shaders therefore look sharper on
+weak hardware. Rendering is capped at 1920x1080 pixels by default.
 
 ## Validation tips
 

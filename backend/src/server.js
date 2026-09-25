@@ -1,19 +1,31 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
-import { initSchema } from "./db/client.js";
+import { closePool, initSchema } from "./db/client.js";
 import shaderRoutes from "./routes/shaders.js";
 import presetRoutes from "./routes/presets.js";
+import controlRoutes from "./routes/control.js";
 import { createState } from "./ws/state.js";
+import { handleSocketMessage, startHeartbeat, trackAlive } from "./ws/handler.js";
+
+const LOG_LEVELS = new Set(["trace", "debug", "info", "warn", "error", "fatal"]);
+
+function logLevel() {
+  const level = (process.env.LOG_LEVEL || "info").toLowerCase();
+  if (level === "warning") return "warn";
+  return LOG_LEVELS.has(level) ? level : "info";
+}
 
 const fastify = Fastify({
-  logger: true,
+  logger: { level: logLevel() },
 });
 
 await fastify.register(cors, {
   origin: true,
 });
-await fastify.register(websocket);
+await fastify.register(websocket, {
+  options: { maxPayload: 4 * 1024 },
+});
 
 const state = createState();
 await initSchema();
@@ -25,55 +37,39 @@ fastify.register(
   async (instance) => {
     instance.register(shaderRoutes, { prefix: "/shaders", state });
     instance.register(presetRoutes, { prefix: "/presets", state });
+    instance.register(controlRoutes, { prefix: "/control", state });
   },
   { prefix: "/api" }
 );
 
-fastify.get("/ws", { websocket: true }, (connection) => {
-  const socket = connection?.socket ?? connection;
+fastify.get("/ws", { websocket: true }, (socket) => {
+  trackAlive(socket);
   state.addClient(socket);
-
-  socket.on("message", async (raw) => {
-    let message;
-    try {
-      message = JSON.parse(raw.toString());
-    } catch (error) {
-      return;
-    }
-
-    if (!message?.type) {
-      return;
-    }
-
-    if (message.type === "state:patch") {
-      state.applyParamPatch(message.payload?.params || {});
-    }
-
-    if (message.type === "shader:set") {
-      const shaderId = Number(message.payload?.shaderId);
-      if (Number.isFinite(shaderId)) {
-        await state.setShader(shaderId);
-      }
-    }
-
-    if (message.type === "preset:load") {
-      const presetId = Number(message.payload?.presetId);
-      if (Number.isFinite(presetId)) {
-        await state.applyPreset(presetId);
-      }
-    }
-
-    if (message.type === "bpm:set") {
-      state.setBpm(message.payload?.bpm);
-    }
-  });
+  socket.on("message", (raw) => handleSocketMessage(state, socket, raw));
 });
+
+const stopHeartbeat = startHeartbeat(state.clients);
+
+async function shutdown(signal) {
+  fastify.log.info({ signal }, "Shutting down");
+  stopHeartbeat();
+  state.closeAll();
+  try {
+    await fastify.close();
+    await closePool();
+  } finally {
+    process.exit(0);
+  }
+}
+
+process.once("SIGTERM", shutdown);
+process.once("SIGINT", shutdown);
 
 const port = Number(process.env.PORT) || 3001;
 
-fastify.listen({ port, host: "0.0.0.0" }, (err) => {
-  if (err) {
-    fastify.log.error(err);
-    process.exit(1);
-  }
-});
+try {
+  await fastify.listen({ port, host: "0.0.0.0" });
+} catch (err) {
+  fastify.log.error(err);
+  process.exit(1);
+}

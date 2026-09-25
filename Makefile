@@ -1,5 +1,5 @@
 .PHONY: all setup setup-dev build build-dev logs logs-frontend logs-backend \
-	run run-dev stop shell shell-frontend shell-backend help
+	run run-dev stop shell shell-frontend shell-backend test help
 
 all: help
 
@@ -22,9 +22,11 @@ build:
 	@echo "Building production images..."
 	uid=$(uid) gid=$(gid) docker compose -p $(PROJECT_NAME) --profile prod build
 
-logs:
-	logs-frontend
-	logs-backend
+logs: logs-frontend logs-backend
+
+test:
+	cd backend && npm test
+	cd frontend && npm test
 
 logs-frontend:
 	@docker logs sh8r-frontend
@@ -96,4 +98,5 @@ help:
 	@echo ''
 	@echo 'Maintenance Commands:'
 	@echo '  stop                - Stop containers'
+	@echo '  test                - Run backend and frontend unit tests (needs local npm install)'
 	@echo '===================='
