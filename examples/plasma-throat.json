@@ -1,0 +1,122 @@
+{
+  "meta": {
+    "author": "sh8r",
+    "title": "Plasma Throat",
+    "description": "A flight down a tunnel of living light: turbulent ribbons, membranes and veins of plasma that convulse and hurl you forward on every beat.",
+    "tags": [
+      "volumetric",
+      "turbulence",
+      "tunnel",
+      "plasma",
+      "journey",
+      "beat-reactive"
+    ]
+  },
+  "params": [
+    {
+      "name": "drift",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Drift",
+      "group": "Journey",
+      "lag": 3,
+      "integrate": "time"
+    },
+    {
+      "name": "kick",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Beat Kick",
+      "group": "Journey",
+      "lag": 2,
+      "integrate": "beat"
+    },
+    {
+      "name": "mirrors",
+      "type": "int",
+      "default": 3,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "label": "Mirrors",
+      "group": "Flow"
+    },
+    {
+      "name": "turbulence",
+      "type": "float",
+      "default": 0.6,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Turbulence",
+      "group": "Flow",
+      "lag": 5
+    },
+    {
+      "name": "radius",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Width",
+      "group": "Flow",
+      "lag": 6
+    },
+    {
+      "name": "veils",
+      "type": "float",
+      "default": 0.45,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Filaments / Veils",
+      "group": "Flow",
+      "lag": 5
+    },
+    {
+      "name": "fisheye",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Fisheye",
+      "group": "Flow",
+      "lag": 6
+    },
+    {
+      "name": "colour",
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Colour",
+      "group": "Light",
+      "lag": 4
+    },
+    {
+      "name": "glow",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Glow",
+      "group": "Light",
+      "lag": 3
+    }
+  ],
+  "shader": {
+    "language": "glsl",
+    "entry": "shader",
+    "code": "// Plasma Throat: a flight down a tunnel of living light. There are no\n// surfaces: space itself is stirred by layers of turbulence, and each ray\n// collects glow wherever it grazes the wound-up tunnel wall, which leaves\n// luminous ribbons, membranes and veins that writhe as you pass. Every\n// beat throws you forward and the whole throat convulses. In the spirit of\n// Xor's volumetric turbulence shaders.\n\n#define TAU 6.28318531\n\nmat2 rot(float a) {\n  float c = cos(a);\n  float s = sin(a);\n  return mat2(c, -s, s, c);\n}\n\nvec2 bend(float z) {\n  return vec2(sin(z * 0.5), cos(z * 0.5) * 0.7 + sin(z) * 0.3);\n}\n\nvec3 shader(vec2 uv, float time) {\n  float j = drift + kick;\n  vec2 p = (uv - 0.5) * vec2(resolution.x / resolution.y, 1.0) * 2.0;\n  // Mirror the view into wedges: symmetric plasma grows faces and wings.\n  float seg = 3.14159265 / float(mirrors);\n  float ang = atan(p.y, p.x) + j * 0.019;\n  ang = abs(mod(ang, 2.0 * seg) - seg) + 0.4;\n  p = length(p) * vec2(cos(ang), sin(ang));\n  vec3 rd = normalize(vec3(p, mix(1.6, 0.6, fisheye)));\n\n  // Everything along the tunnel repeats every 4 pi, so the flight can be\n  // wrapped and stays precise all night.\n  float fly = mod(j * 0.55, 2.0 * TAU);\n  float churn = j * 0.23;\n  float amp = mix(0.15, 1.0, turbulence);\n  float wide = mix(0.8, 2.6, radius);\n  vec2 centre = bend(fly);\n\n  float z = 0.0;\n  vec3 col = vec3(0.0);\n  for (int i = 0; i < 40; i++) {\n    vec3 q = rd * z;\n    q.z += fly;\n    q.xy += (centre - bend(q.z)) * -0.9;\n    vec3 w = q;\n    // Turbulence: each octave shoves the point sideways by the others.\n    for (int k = 1; k < 9; k++) {\n      float f = float(k);\n      w += amp * sin(w.yzx * f + churn + f * 1.7) / f;\n    }\n    // Nested membranes around the tunnel axis, cut into ribbons.\n    float len = length(w.xy);\n    float wall = abs(sin((len - wide) * 2.6)) / 2.6;\n    // Where a membrane crosses a sheet of the stirred space, a filament.\n    float sheet = abs(sin(w.y * 2.0 + w.z)) * 0.5;\n    float d = 0.006 + 0.3 * wall + 0.3 * mix(sheet, wall, veils);\n    vec3 c = cos(w.z * 0.5 + len * 0.9 + w.x * 0.8 + TAU * colour + vec3(0.0, 2.1, 4.2)) + 1.0;\n    col += c * c / d * exp(-z * 0.12);\n    z += d;\n  }\n\n  col *= 0.00055 * mix(1.0, 0.3, veils) * mix(0.5, 2.0, glow);\n  // tanh-like shoulder (no tanh in WebGL 1).\n  col = 1.0 - 2.0 / (exp(2.0 * col) + 1.0);\n  return clamp(col, 0.0, 1.0);\n}\n"
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "meta": {
+    "author": "sh8r",
+    "title": "Neon Loom",
+    "description": "A maze of glowing ribbons that keeps rewiring itself: tiles go dark, turn and relight while chevrons of light race along the loops with the beat.",
+    "tags": [
+      "truchet",
+      "maze",
+      "geometric",
+      "graphic",
+      "journey",
+      "beat-reactive"
+    ]
+  },
+  "params": [
+    {
+      "name": "drift",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Drift",
+      "group": "Journey",
+      "lag": 3,
+      "integrate": "time"
+    },
+    {
+      "name": "kick",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Beat Kick",
+      "group": "Journey",
+      "lag": 2,
+      "integrate": "beat"
+    },
+    {
+      "name": "density",
+      "type": "float",
+      "default": 0.45,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Density",
+      "group": "Weave",
+      "lag": 6
+    },
+    {
+      "name": "width",
+      "type": "float",
+      "default": 0.6,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Ribbon Width",
+      "group": "Weave",
+      "lag": 4
+    },
+    {
+      "name": "shuffle",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Rewiring",
+      "group": "Weave",
+      "lag": 4
+    },
+    {
+      "name": "bend",
+      "type": "float",
+      "default": 0.35,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Bend",
+      "group": "Weave",
+      "lag": 6
+    },
+    {
+      "name": "colour",
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Colour",
+      "group": "Light",
+      "lag": 4
+    }
+  ],
+  "shader": {
+    "language": "glsl",
+    "entry": "shader",
+    "code": "// Neon Loom: a maze of glowing cables built from Truchet tiles. Every\n// square tile carries two quarter-circle arcs; random orientations join\n// them into endless tangled loops. Comets of light race along the cables,\n// always in a consistent direction. Tiles keep going dark, turning a\n// quarter on a turntable and lighting up again, so the maze rewires\n// itself as you watch.\n// The silhouette of a second, larger loom drifts underneath.\n\n#define TAU 6.28318531\n\nmat2 rot(float a) {\n  float c = cos(a);\n  float s = sin(a);\n  return mat2(c, -s, s, c);\n}\n\nvec3 palette(float t) {\n  return 0.5 + 0.5 * cos(TAU * (t + vec3(0.0, 0.33, 0.67)));\n}\n\nfloat hash(vec2 p) {\n  p = fract(p * vec2(123.34, 456.21));\n  p += dot(p, p + 45.32);\n  return fract(p.x * p.y);\n}\n\n// One loom layer. Returns colour in rgb and cable coverage in a; halo\n// receives the light the cables throw on whatever lies below them.\nvec4 loom(vec2 p, vec2 pan, float sc, float seed, float j, float hue, float px, out vec3 halo) {\n  vec2 g = p * sc + pan;\n  vec2 id = floor(g);\n  vec2 q = fract(g) - 0.5;\n  float pxs = px * sc;\n  float h = hash(id + seed);\n  float parity = mod(id.x + id.y, 2.0);\n\n  // Each tile has its own clock. At the start of a cycle it goes dark,\n  // turns a quarter, and lights up again.\n  float clock = j * 0.1 * shuffle + h * 16.0;\n  float f = fract(clock);\n  float turning = smoothstep(0.03, 0.14, f);\n  float lit = 1.0 - smoothstep(0.0, 0.03, f) * (1.0 - smoothstep(0.14, 0.18, f));\n  float quarter = mod(floor(clock) + floor(h * 4.0), 4.0);\n  vec2 l = rot(-(quarter + turning) * TAU * 0.25) * q;\n  // While it turns, the tile is a disc that fits inside its square.\n  float disc = mix(0.5, 0.72, lit);\n  float inside = smoothstep(disc + pxs, disc - pxs, length(q));\n\n  // Arcs around two opposite corners; take the nearer one.\n  float sgn = l.x + l.y < 0.0 ? -1.0 : 1.0;\n  vec2 v = l - sgn * 0.5;\n  float across = abs(length(v) - 0.5);\n  // Position along the arc: 0 where it meets the tile's vertical edge,\n  // 1 at the horizontal edge.\n  vec2 w = -sgn * v;\n  float along = atan(w.x, w.y) / (TAU * 0.25);\n  // On a checkerboard, light enters through vertical edges on one colour\n  // and horizontal edges on the other, so it flows on across every joint.\n  float flip = mod(parity + quarter + step(0.03, f), 2.0);\n  along = mix(along, 1.0 - along, flip);\n\n  float half_w = mix(0.1, 0.2, width);\n  float x = across / half_w;\n  float ax = pxs / half_w;\n  float cover = smoothstep(1.0 + ax, 1.0 - ax, x) * inside;\n\n  // Colour wanders slowly across the plane.\n  float hh = hue + 0.12 * sin(p.x * 0.9 + p.y * 0.4) + 0.1 * cos(p.y * 0.8 - p.x * 0.3);\n  // The flow, bent into chevrons that point down the cable.\n  float s = along * 2.0 - j * 0.35 - x * 0.3;\n  float as = pxs * 3.0;\n\n  // A cable is three strands: a core carrying comets between two\n  // steadily glowing rails.\n  float fb = fract(s);\n  float comet = fb * fb * smoothstep(1.0, 1.0 - as - 0.02, fb);\n  vec3 core = palette(hh + floor(s) * 0.19) * (0.18 + 1.1 * comet) + 0.35 * comet * comet;\n  core *= 0.4 + 0.6 * sqrt(max(1.0 - x * x / 0.16, 0.0));\n\n  vec3 rail = palette(hh + 0.42) * (0.55 + 0.6 * comet);\n  float rx = (x - 0.74) / 0.26;\n  rail *= 0.35 + 0.65 * sqrt(max(1.0 - rx * rx, 0.0));\n\n  float isCore = smoothstep(0.4 + ax, 0.4 - ax, x);\n  float isRail = smoothstep(0.48 - ax, 0.48 + ax, x);\n  vec3 col = core * isCore + rail * isRail;\n  col *= mix(0.45, 1.0, lit);\n  // The rim of the turntable shows while it is in use.\n  float ring = (1.0 - lit) * smoothstep(0.012 + pxs, 0.012 - pxs, abs(length(q) - 0.47));\n  col = mix(col, palette(hh + 0.7) * 0.8, ring);\n  cover = max(cover, ring);\n\n  float spill = exp(-max(across - half_w, 0.0) / 0.045) * inside;\n  halo = palette(hh + 0.1) * spill * (0.2 + 0.5 * comet) * lit;\n  return vec4(col, cover);\n}\n\nvec3 shader(vec2 uv, float time) {\n  float j = drift + kick;\n  vec2 p = (uv - 0.5) * vec2(resolution.x / resolution.y, 1.0) * 2.0;\n  float px = 2.0 / resolution.y * (1.0 + bend);\n\n  // Bend the plane: a bulge towards the viewer and slow rolling waves.\n  p *= 1.0 + bend * 0.3 * dot(p, p);\n  p += bend * 0.22 * vec2(sin(p.y * 1.7 + j * 0.07), sin(p.x * 1.3 - j * 0.05));\n  p = rot(j * 0.013) * p;\n\n  float hue = colour + j * 0.012;\n  float sc = mix(1.5, 5.5, density * density);\n\n  vec3 col = palette(hue + 0.6 + 0.15 * sin(p.x * 0.7 + p.y * 0.5)) * 0.05;\n\n  vec3 halo;\n  vec4 back = loom(p * 0.47, vec2(5.3, 2.1) + j * vec2(0.02, 0.012), sc, 7.0, j * 0.6, hue + 0.45, px * 0.47, halo);\n  col = mix(col, palette(hue + 0.3) * 0.11, back.a);\n\n  vec4 front = loom(p, j * vec2(0.06, 0.033), sc, 0.0, j, hue, px, halo);\n  // The front cables sit above the back loom: shadow first, then glow.\n  col *= 1.0 - 0.55 * length(halo);\n  col += halo * 0.9;\n  col = mix(col, front.rgb, front.a);\n\n  col *= 1.0 - 0.35 * smoothstep(0.7, 1.9, length(uv - 0.5) * 2.0);\n  return clamp(col, 0.0, 1.0);\n}\n"
+  }
+}

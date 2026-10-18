@@ -1,0 +1,101 @@
+{
+  "meta": {
+    "author": "sh8r",
+    "title": "Deep Field",
+    "description": "A volumetric flight through a fractal cosmos of dust, filaments and star clusters, bent by a gravitational lens and pushed along by the beat.",
+    "tags": [
+      "volumetric",
+      "fractal",
+      "space",
+      "cosmic",
+      "journey",
+      "beat-reactive"
+    ]
+  },
+  "params": [
+    {
+      "name": "drift",
+      "type": "float",
+      "default": 0.25,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Drift",
+      "group": "Journey",
+      "lag": 3,
+      "integrate": "time"
+    },
+    {
+      "name": "kick",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Beat Kick",
+      "group": "Journey",
+      "lag": 2,
+      "integrate": "beat"
+    },
+    {
+      "name": "form",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Form",
+      "group": "Cosmos",
+      "lag": 8
+    },
+    {
+      "name": "zoom",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Zoom",
+      "group": "Cosmos",
+      "lag": 6
+    },
+    {
+      "name": "swirl",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Lens Swirl",
+      "group": "Cosmos",
+      "lag": 5
+    },
+    {
+      "name": "colour",
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Colour",
+      "group": "Light",
+      "lag": 4
+    },
+    {
+      "name": "shine",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Brightness",
+      "group": "Light",
+      "lag": 3
+    }
+  ],
+  "shader": {
+    "language": "glsl",
+    "entry": "shader",
+    "code": "// Deep Field: a volumetric flight through a fractal cosmos. Each ray samples\n// a folded, inverted space (p = |p| / p.p - form) in shells of growing\n// distance; the folding leaves dust, filaments and star clusters at every\n// scale. Form reshapes the whole universe, Swirl bends the light around the\n// centre of the view like a gravitational lens. Based on the volumetric\n// technique of Kali's \"Star Nest\".\n\n#define TAU 6.28318531\n\nmat2 rot(float a) {\n  float c = cos(a);\n  float s = sin(a);\n  return mat2(c, -s, s, c);\n}\n\nvec3 palette(float t) {\n  return 0.5 + 0.5 * cos(TAU * (t + vec3(0.0, 0.33, 0.67)));\n}\n\nvec3 shader(vec2 uv, float time) {\n  float j = drift + kick;\n  vec2 p = (uv - 0.5) * vec2(resolution.x / resolution.y, 1.0);\n\n  // Gravitational lens: light near the centre is dragged around it.\n  float rad = length(p);\n  p = rot(swirl * 2.5 * exp(-rad * 2.5) * sin(j * 0.06 + 1.0)) * p;\n  p *= 1.0 - swirl * 0.5 * exp(-rad * rad * 6.0);\n\n  vec3 dir = normalize(vec3(p * mix(2.2, 0.5, zoom), 1.0));\n  dir.xz = rot(0.5 + j * 0.009) * dir.xz;\n  dir.xy = rot(0.8 + j * 0.013) * dir.xy;\n  vec3 from = vec3(1.0, 0.5, 0.5) + vec3(0.02, 0.011, -0.013) * j;\n\n  // The universe's constant drifts slightly along the journey.\n  float fp = mix(0.56, 0.68, form) + 0.012 * sin(j * 0.031);\n  float hue = colour + j * 0.007;\n\n  float s = 0.1;\n  float fade = 1.0;\n  vec3 acc = vec3(0.0);\n  for (int k = 0; k < 16; k++) {\n    vec3 q = from + s * dir * 0.5;\n    // Mirror-tile space so the flight never leaves the structure.\n    q = abs(vec3(0.85) - mod(q, vec3(1.7)));\n    float pa = 0.0;\n    float a = 0.0;\n    for (int i = 0; i < 15; i++) {\n      q = abs(q) / max(dot(q, q), 1e-6) - fp;\n      float l = length(q);\n      a += abs(l - pa);\n      pa = l;\n    }\n    // Dark matter: voids swallow the light of the shells behind them.\n    float dm = max(0.0, 0.3 - a * a * 0.001);\n    a *= a * a;\n    if (k > 5) fade *= 1.0 - dm;\n    // Each shell has its own colour, so depth reads as a spectrum.\n    vec3 tint = palette(hue + s * 0.55);\n    acc += fade * 0.6 * mix(vec3(1.0), tint, 0.7);\n    acc += tint * s * a * 0.0017 * fade;\n    fade *= 0.73;\n    s += 0.1;\n  }\n  vec3 col = acc * 0.01 * mix(0.4, 1.6, shine);\n  // Compress brightness but keep the hue, so bright clusters glow in\n  // colour; only their very cores burn out to white.\n  float peak = max(col.r, max(col.g, col.b)) + 1e-4;\n  col /= 1.0 + 0.9 * peak;\n  col = mix(col, vec3(1.0), 0.6 * smoothstep(4.0, 40.0, peak));\n  return clamp(col, 0.0, 1.0);\n}\n"
+  }
+}

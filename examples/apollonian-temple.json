@@ -1,0 +1,101 @@
+{
+  "meta": {
+    "author": "sh8r",
+    "title": "Apollonian Temple",
+    "description": "A flight through an impossible building of arches inside arches and domes packed with domes, growing and swallowing its own vaults along the journey.",
+    "tags": [
+      "raymarching",
+      "fractal",
+      "apollonian",
+      "architecture",
+      "journey",
+      "beat-reactive"
+    ]
+  },
+  "params": [
+    {
+      "name": "drift",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Drift",
+      "group": "Journey",
+      "lag": 3,
+      "integrate": "time"
+    },
+    {
+      "name": "kick",
+      "type": "float",
+      "default": 0.35,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Beat Kick",
+      "group": "Journey",
+      "lag": 2,
+      "integrate": "beat"
+    },
+    {
+      "name": "form",
+      "type": "float",
+      "default": 0.35,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Form",
+      "group": "Temple",
+      "lag": 8
+    },
+    {
+      "name": "fisheye",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Fisheye",
+      "group": "Temple",
+      "lag": 6
+    },
+    {
+      "name": "seams",
+      "type": "float",
+      "default": 0.6,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Seams",
+      "group": "Light",
+      "lag": 3
+    },
+    {
+      "name": "colour",
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Colour",
+      "group": "Light",
+      "lag": 4
+    },
+    {
+      "name": "glow",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Glow",
+      "group": "Light",
+      "lag": 3
+    }
+  ],
+  "shader": {
+    "language": "glsl",
+    "entry": "shader",
+    "code": "// Apollonian Temple: a flight through an impossible building. Space is\n// tiled into cells and each cell is turned inside out through a sphere,\n// over and over; the result is an endless hall of arches inside arches,\n// domes packed with smaller domes, down to dust. The inversion strength\n// breathes along the journey, so the architecture keeps growing new\n// vaults and swallowing old ones while you fly through its walls of\n// light. Fractal after iq's \"Apollonian\".\n\n#define TAU 6.28318531\n\nfloat SS;   // inversion strength\nvec4 ORB;   // orbit trap of the last map() call\n\nmat2 rot(float a) {\n  float c = cos(a);\n  float s = sin(a);\n  return mat2(c, -s, s, c);\n}\n\nvec3 palette(float t) {\n  return 0.5 + 0.5 * cos(TAU * (t + vec3(0.0, 0.33, 0.67)));\n}\n\nfloat map(vec3 p) {\n  float sc = 1.0;\n  ORB = vec4(1e3);\n  for (int i = 0; i < 7; i++) {\n    p = 2.0 * fract(0.5 * p + 0.5) - 1.0;\n    float r2 = dot(p, p);\n    ORB = min(ORB, vec4(abs(p), r2));\n    float k = SS / r2;\n    p *= k;\n    sc *= k;\n  }\n  // Thin sheets: the camera can pass straight through them.\n  return 0.25 * abs(p.y) / sc;\n}\n\nvec3 normalAt(vec3 p, float eps) {\n  vec2 e = vec2(1.0, -1.0) * eps;\n  return normalize(\n    e.xyy * map(p + e.xyy) + e.yyx * map(p + e.yyx) +\n    e.yxy * map(p + e.yxy) + e.xxx * map(p + e.xxx)\n  );\n}\n\nvec3 shader(vec2 uv, float time) {\n  float j = drift + kick;\n  vec2 p = (uv - 0.5) * vec2(resolution.x / resolution.y, 1.0) * 2.0;\n\n  SS = mix(1.05, 1.5, form) + 0.07 * sin(j * 0.041) * (1.0 - 0.5 * form);\n  float hue = colour + j * 0.009;\n\n  // The building repeats every 2 units, so the flight is wrapped.\n  float fly = j * 0.045;\n  vec3 ro = vec3(\n    0.9 + 0.35 * sin(j * 0.011),\n    0.45 + 0.3 * sin(j * 0.0077 + 1.0),\n    mod(fly, 2.0)\n  );\n  float yaw = 0.5 * sin(j * 0.013);\n  float pitch = 0.3 * sin(j * 0.0091);\n  vec3 fw = normalize(vec3(sin(yaw), sin(pitch), cos(yaw)));\n  vec3 rt = normalize(cross(vec3(0.0, 1.0, 0.0), fw));\n  vec3 up = cross(fw, rt);\n  p = rot(j * 0.015) * p;\n  vec3 rd = normalize(fw + (p.x * rt + p.y * up) * mix(0.6, 1.5, fisheye));\n\n  float t = 0.01;\n  float halo = 0.0;\n  float hit = 0.0;\n  float steps = 0.0;\n  for (int i = 0; i < 64; i++) {\n    float d = map(ro + rd * t);\n    halo += exp(-d * 45.0) * exp(-t * 0.5);\n    if (d < 0.0007 * t + 0.0002) {\n      hit = 1.0;\n      break;\n    }\n    t += d;\n    steps += 1.0;\n    if (t > 9.0) break;\n  }\n\n  vec3 mist = palette(hue + 0.6) * 0.02;\n  vec3 col = mist;\n  if (hit > 0.5) {\n    vec3 pos = ro + rd * t;\n    vec4 orb = ORB;\n    vec3 n = normalAt(pos, 0.0006 + 0.0012 * t);\n    float facing = abs(dot(n, rd));\n    // The orbit trap paints the ornament: where the folding came closest\n    // to the cell's axes and centre.\n    vec3 base = palette(hue + sqrt(orb.w) * 1.6 + orb.y * 0.7);\n    vec3 trim = palette(hue + 0.45 + orb.x * 1.5);\n    base = mix(base, base * base * 1.4, 0.6);\n    col = base * (0.1 + 0.9 * facing * facing);\n    col = mix(col, trim * 1.2, exp(-10.0 * orb.z));\n    // Engraving: contour bands of the trap cover every wall in ornament.\n    float bands = abs(sin(34.0 * sqrt(orb.w))) * abs(sin(26.0 * orb.y + 9.0 * orb.x));\n    col *= 0.25 + 0.95 * smoothstep(0.05, 0.35, bands);\n    col += palette(hue + 0.5 + orb.w) * exp(-14.0 * bands) * 0.9 * seams;\n    // Seams glow where the trap hugs an axis.\n    col += vec3(1.0, 0.8, 0.5) * 1.1 * exp(-45.0 * orb.x) * seams;\n    // Crevices: many steps means a cramped corner.\n    col *= 1.0 - 0.75 * steps / 64.0;\n    col += palette(hue + 0.7) * pow(1.0 - facing, 3.0) * 0.5;\n    col = mix(mist, col, exp(-0.11 * t * t));\n  }\n  col += (palette(hue + 0.3) + 0.2) * halo * 0.009 * mix(0.0, 2.0, glow);\n\n  col = 1.0 - exp(-col * 1.5);\n  return clamp(col, 0.0, 1.0);\n}\n"
+  }
+}

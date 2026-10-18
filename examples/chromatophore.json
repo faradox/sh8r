@@ -1,0 +1,101 @@
+{
+  "meta": {
+    "author": "sh8r",
+    "title": "Chromatophore",
+    "description": "Cuttlefish skin up close: layers of pigment sacs opening and closing in travelling clouds and spirals over an iridescent ground, pulsing with the beat.",
+    "tags": [
+      "organic",
+      "cellular",
+      "voronoi",
+      "iridescent",
+      "journey",
+      "beat-reactive"
+    ]
+  },
+  "params": [
+    {
+      "name": "drift",
+      "type": "float",
+      "default": 0.25,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Drift",
+      "group": "Journey",
+      "lag": 3,
+      "integrate": "time"
+    },
+    {
+      "name": "kick",
+      "type": "float",
+      "default": 0.35,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Beat Kick",
+      "group": "Journey",
+      "lag": 2,
+      "integrate": "beat"
+    },
+    {
+      "name": "scale",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Cell Density",
+      "group": "Skin",
+      "lag": 6
+    },
+    {
+      "name": "pattern",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Clouds / Spirals",
+      "group": "Skin",
+      "lag": 6
+    },
+    {
+      "name": "tension",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Open / Shut",
+      "group": "Skin",
+      "lag": 4
+    },
+    {
+      "name": "sheen",
+      "type": "float",
+      "default": 0.6,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Iridescence",
+      "group": "Light",
+      "lag": 4
+    },
+    {
+      "name": "colour",
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Colour",
+      "group": "Light",
+      "lag": 4
+    }
+  ],
+  "shader": {
+    "language": "glsl",
+    "entry": "shader",
+    "code": "// Chromatophore: the skin of a cuttlefish, seen up close. Three layers of\n// pigment sacs sit on a shimmering iridescent ground. Each sac opens into a\n// wide disc of colour or shuts to a dark dot; waves of opening and closing\n// travel across the skin, as clouds or as spirals, and every beat pushes\n// them a step further. Crowded sacs press flat against each other.\n\n#define TAU 6.28318531\n\nmat2 rot(float a) {\n  float c = cos(a);\n  float s = sin(a);\n  return mat2(c, -s, s, c);\n}\n\nvec3 palette(float t) {\n  return 0.5 + 0.5 * cos(TAU * (t + vec3(0.0, 0.33, 0.67)));\n}\n\nfloat hash(vec2 p) {\n  p = fract(p * vec2(123.34, 456.21));\n  p += dot(p, p + 45.32);\n  return fract(p.x * p.y);\n}\n\nvec2 hash2(vec2 p) {\n  float h = hash(p);\n  return vec2(h, hash(p + h * 37.0 + 11.7));\n}\n\nfloat noise(vec2 p) {\n  vec2 i = floor(p);\n  vec2 f = fract(p);\n  vec2 u = f * f * (3.0 - 2.0 * f);\n  return mix(\n    mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),\n    mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),\n    u.y\n  );\n}\n\nfloat fbm(vec2 p) {\n  float v = 0.0;\n  float a = 0.5;\n  for (int i = 0; i < 3; i++) {\n    v += a * noise(p);\n    p = mat2(0.8, 0.6, -0.6, 0.8) * p * 2.03;\n    a *= 0.5;\n  }\n  return v / 0.875;\n}\n\n// How far open (0..1) a sac at skin position c is.\nfloat activation(vec2 c, float j, float seed) {\n  // Warped sines: cheap, and smooth enough to read as drifting clouds.\n  float cloud = sin(c.x * 1.3 + 1.8 * sin(c.y * 0.9 + j * 0.05) + seed * 7.0) +\n    sin(c.y * 1.6 + 1.8 * sin(c.x * 0.7 - j * 0.04) - seed * 3.0);\n  cloud *= 0.45;\n  vec2 f = c - 0.7 * vec2(sin(j * 0.05), cos(j * 0.041));\n  float spiral = length(f) * 1.1 - atan(f.y, f.x) / TAU * 2.0;\n  float ph = mix(cloud, spiral, pattern) - j * 0.11 + seed * 0.31;\n  float w = 0.5 + 0.5 * sin(TAU * ph);\n  return smoothstep(0.0, 1.0, (w - (1.0 - tension)) * 2.5 + 0.5);\n}\n\n// Paints one layer of sacs over col.\nvec3 sacs(vec3 col, vec2 p, mat2 m, float sc, float seed, float j, float hue, float px) {\n  // Every layer's grid is turned differently so no rows line up.\n  vec2 g = m * p * sc;\n  vec2 id = floor(g);\n  vec2 f = fract(g);\n  float pxs = px * sc;\n\n  // Nearest and second nearest sac, measured in sac radii, so neighbours\n  // meet along a flat seam instead of overlapping.\n  float q1 = 1e3;\n  float q2 = 1e3;\n  vec2 d1 = vec2(0.0);\n  float r1 = 1.0;\n  float a1 = 0.0;\n  float h1 = 0.0;\n  for (int y = -1; y <= 1; y++) {\n    for (int x = -1; x <= 1; x++) {\n      vec2 o = vec2(float(x), float(y));\n      vec2 cid = id + o;\n      vec2 rnd = hash2(cid + seed * 17.3);\n      vec2 d = f - (o + 0.5 + (rnd - 0.5) * 0.9);\n      float act = activation(((cid + 0.5) / sc) * m, j, seed);\n      float r = mix(0.1, 0.6, act) * (0.8 + 0.4 * rnd.x);\n      // The rim of an open sac is slightly lobed.\n      float len = length(d);\n      vec2 u = d / max(len, 1e-4);\n      r *= 1.0 + 0.07 * act * (rnd.y - 0.5) * 2.0 * u.x * (4.0 * u.x * u.x - 3.0);\n      float q = len / r;\n      if (q < q1) {\n        q2 = q1;\n        q1 = q;\n        d1 = d;\n        r1 = r;\n        a1 = act;\n        h1 = rnd.y;\n      } else if (q < q2) {\n        q2 = q;\n      }\n    }\n  }\n\n  float aa = pxs / r1;\n  float cover = smoothstep(1.0 + aa, 1.0 - aa - 0.04, q1);\n  // Pigment is dense and dark when the sac is shut, vivid when it opens.\n  vec3 pig = palette(hue + h1 * 0.14 + a1 * 0.08);\n  vec3 sac = pig * mix(0.42, 1.05, a1) * (1.0 - 0.5 * q1 * q1);\n  sac = mix(sac, sac * sac * 1.3, 0.35);\n  // A wet highlight on the dome.\n  vec2 hp = d1 / r1 - vec2(-0.32, 0.36);\n  sac += (0.2 + 0.5 * a1) * smoothstep(0.34, 0.0, length(hp));\n  // Dark seam where two sacs press together.\n  sac *= 0.35 + 0.65 * smoothstep(0.0, 0.1 + aa, q2 - q1);\n\n  // The sac shades the skin around it.\n  col *= 1.0 - 0.45 * smoothstep(1.5, 1.0, q1);\n  return mix(col, sac, cover * mix(1.0, 0.86, a1));\n}\n\nvec3 shader(vec2 uv, float time) {\n  float j = drift + kick;\n  vec2 p = (uv - 0.5) * vec2(resolution.x / resolution.y, 1.0) * 2.0;\n  float px = 2.0 / resolution.y;\n\n  // The skin itself moves: slow turn, breathing, a gentle undulation.\n  p = rot(j * 0.011) * p * (1.0 + 0.08 * sin(j * 0.07));\n  p += 0.05 * vec2(noise(p * 1.7 + j * 0.05), noise(p * 1.7 + 31.0 - j * 0.04));\n\n  float hue = colour + j * 0.009;\n  float sc = mix(2.0, 9.0, scale * scale);\n\n  // Iridescent ground: shifting metallic bands with glittering platelets.\n  float n1 = fbm(p * 1.3 + vec2(j * 0.03, 0.0));\n  float n2 = fbm(p * 3.1 + n1 * 2.5 - vec2(0.0, j * 0.04));\n  vec3 ground = palette(hue + 0.55 + n1 * 0.5 + n2 * 0.35);\n  ground *= 0.2 + 0.8 * smoothstep(0.25, 0.8, n2);\n  vec2 pg = p * sc * 5.0;\n  float ph = hash(floor(pg));\n  float glint = pow(0.5 + 0.5 * sin(j * 0.9 + ph * TAU), 10.0);\n  ground += glint * ph * smoothstep(0.5, 0.1, length(fract(pg) - 0.5));\n  vec3 col = ground * mix(0.04, 1.0, sheen);\n\n  col = sacs(col, p, rot(0.4), sc, 1.0, j, hue, px);\n  col = sacs(col, p, rot(1.5), sc * 1.7, 2.0, j, hue + 0.36, px);\n  col = sacs(col, p, rot(2.7), sc * 2.9, 3.0, j, hue + 0.68, px);\n\n  col *= 1.0 - 0.35 * smoothstep(0.7, 1.9, length(uv - 0.5) * 2.0);\n  return clamp(col, 0.0, 1.0);\n}\n"
+  }
+}

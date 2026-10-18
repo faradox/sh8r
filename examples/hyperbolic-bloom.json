@@ -1,0 +1,110 @@
+{
+  "meta": {
+    "author": "sh8r",
+    "title": "Hyperbolic Bloom",
+    "description": "A glide through curved space: an Escher-like hyperbolic tiling streaming out of the rim of a disk, with rings of light running through every tile on the beat.",
+    "tags": [
+      "hyperbolic",
+      "tiling",
+      "geometric",
+      "escher",
+      "journey",
+      "beat-reactive"
+    ]
+  },
+  "params": [
+    {
+      "name": "drift",
+      "type": "float",
+      "default": 0.2,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Drift",
+      "group": "Journey",
+      "lag": 3,
+      "integrate": "time"
+    },
+    {
+      "name": "kick",
+      "type": "float",
+      "default": 0.35,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Beat Kick",
+      "group": "Journey",
+      "lag": 2,
+      "integrate": "beat"
+    },
+    {
+      "name": "sides",
+      "type": "int",
+      "default": 5,
+      "min": 3,
+      "max": 8,
+      "step": 1,
+      "label": "Tile Sides",
+      "group": "Tiling"
+    },
+    {
+      "name": "meet",
+      "type": "int",
+      "default": 4,
+      "min": 3,
+      "max": 8,
+      "step": 1,
+      "label": "Tiles per Corner",
+      "group": "Tiling"
+    },
+    {
+      "name": "lens",
+      "type": "float",
+      "default": 0.25,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Disk / Inside",
+      "group": "Tiling",
+      "lag": 6
+    },
+    {
+      "name": "morph",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Centres / Corners",
+      "group": "Pattern",
+      "lag": 6
+    },
+    {
+      "name": "rings",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Rings",
+      "group": "Pattern",
+      "lag": 5
+    },
+    {
+      "name": "colour",
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Colour",
+      "group": "Light",
+      "lag": 4
+    }
+  ],
+  "shader": {
+    "language": "glsl",
+    "entry": "shader",
+    "code": "// Hyperbolic Bloom: a tiling of the hyperbolic plane in the Poincare disk,\n// like Escher's Circle Limit prints. Regular polygons, several meeting at\n// every corner, fit infinitely often and shrink towards the rim. The camera\n// glides through that curved space (a Mobius transformation), so tiles\n// stream out of the rim, swell, and vanish into it again. Outside the disk\n// the same world is mirrored. Rings of light run through every tile and\n// surge on the beat; Morph slides them from the tile centres to the corners.\n\n#define TAU 6.28318531\n#define PI 3.14159265\n\nmat2 rot(float a) {\n  float c = cos(a);\n  float s = sin(a);\n  return mat2(c, -s, s, c);\n}\n\nvec3 palette(float t) {\n  return 0.5 + 0.5 * cos(TAU * (t + vec3(0.0, 0.33, 0.67)));\n}\n\nvec2 cmul(vec2 a, vec2 b) {\n  return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);\n}\n\nvec2 cdiv(vec2 a, vec2 b) {\n  return vec2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y) / dot(b, b);\n}\n\nvec3 shader(vec2 uv, float time) {\n  float j = drift + kick;\n  vec2 z = (uv - 0.5) * vec2(resolution.x / resolution.y, 1.0) * 2.0;\n  float px = 2.0 / resolution.y;\n\n  // Lens: the disk fits the screen, or grows until we are inside it.\n  float size = mix(0.94, 3.2, lens * lens);\n  z /= size;\n  px /= size;\n  float r2 = dot(z, z);\n  float outside = step(1.0, r2);\n  if (r2 > 1.0) {\n    // Mirror world: invert the outside into the disk.\n    z /= r2;\n    px /= r2;\n    r2 = 1.0 / r2;\n  }\n  // How much hyperbolic space one pixel covers grows towards the rim.\n  float conf = max(1.0 - r2, 1e-4);\n\n  // Glide: a hyperbolic translation to a wandering point, plus a slow turn.\n  float ga = j * 0.05;\n  vec2 a = 0.9 * sin(j * 0.13) * vec2(cos(ga), sin(ga));\n  vec2 w = cdiv(z - a, vec2(1.0, 0.0) - cmul(vec2(a.x, -a.y), z));\n  w = rot(j * 0.017) * w;\n\n  // {P, Q}: P-sided tiles, Q at every corner. Q is raised where needed so\n  // the tiling stays hyperbolic (1/P + 1/Q < 1/2).\n  float P = float(sides);\n  float Q = max(float(meet), floor(2.0 * P / (P - 2.0)) + 1.0);\n  float al = PI / P;\n  float sa = sin(al);\n  float ca = cos(al);\n  float cq = cos(PI / Q);\n  // The tile edge is a circle that meets the rim at right angles.\n  float rr = sa * sa / (cq * cq - sa * sa);\n  float rad = sqrt(rr);\n  float cc = sqrt(1.0 + rr);\n  vec2 C = vec2(cc, 0.0);\n\n  // Fold the point into the fundamental triangle by mirroring it across\n  // the tile's symmetry axes and its edge until it stays put.\n  float n = 0.0;\n  float par = 0.0;\n  for (int i = 0; i < 40; i++) {\n    float ang = atan(w.y, w.x);\n    par += floor(ang / al);\n    ang = al - abs(mod(ang, 2.0 * al) - al);\n    w = length(w) * vec2(cos(ang), sin(ang));\n    vec2 v = w - C;\n    float d2 = dot(v, v);\n    if (d2 >= rr) break;\n    w = C + v * rr / d2;\n    n += 1.0;\n  }\n  par = mod(par + n, 2.0);\n\n  // Size of a pixel in the folded space (the fold preserves hyperbolic\n  // distances), for lines that stay crisp at every depth.\n  float ps = px * (1.0 - dot(w, w)) / conf;\n\n  float inr = cc - rad;\n  float tv = cc * ca - sqrt(max(cc * cc * ca * ca - 1.0, 0.0));\n  vec2 V = tv * vec2(ca, sa);\n  float e = (length(w - C) - rad) / inr; // 1 at the tile centre, 0 on edges\n  float dv = length(w - V) / tv;         // 1 at the tile centre, 0 at corners\n\n  // Near the middle, the journey swings the morph by itself.\n  float m = clamp(morph + (0.5 - abs(morph - 0.5)) * 0.8 * sin(j * 0.043), 0.0, 1.0);\n  float v = mix(e, dv, m);\n  float count = mix(2.0, 9.0, rings);\n  float s = v * count + j * 0.22;\n  float aw = ps * count / min(inr, tv);\n  float detail = 1.0 - smoothstep(0.2, 0.6, aw);\n\n  float hue = colour + j * 0.013 + 0.5 * outside;\n  float b = fract(s);\n  float tube = sin(PI * b);\n  // Keep the dark seams between rings at least a pixel wide.\n  tube = smoothstep(0.0, clamp(aw * 3.0, 0.02, 1.0) + 0.35, tube);\n  vec3 base = palette(hue + floor(s) * 0.13 + n * 0.07 * (1.0 - m));\n  // Each ring is a terrace: lit along its outer lip, shaded where the\n  // next one overhangs it.\n  vec3 col = base * (0.04 + 0.96 * tube) * (0.45 + 0.75 * b * b);\n  col += palette(hue + floor(s) * 0.13 + 0.12) * 0.5 * pow(b, 6.0) * tube;\n  // Alternate triangles sit slightly in shadow: a pinwheel in every tile.\n  col *= 0.72 + 0.28 * par;\n\n  // Tile edges glow.\n  float el = e * inr;\n  vec3 edgeCol = palette(hue + 0.5 + n * 0.07);\n  float lw = 0.004 + 0.012 * (1.0 - m);\n  col = mix(col, edgeCol + 0.35, smoothstep(lw + ps, lw - ps, el) * (1.0 - 0.6 * m));\n  col += edgeCol * 0.35 * exp(-el / 0.03) * (1.0 - m);\n\n  // Towards the rim the tiles get smaller than a pixel: dissolve to light.\n  vec3 rim = palette(hue + 0.62) * 0.3;\n  col = mix(rim, col, detail);\n  col += (palette(hue + 0.3) + 0.3) * 0.8 * exp(-conf * 22.0);\n  col *= mix(1.0, 0.7, outside);\n\n  return clamp(col, 0.0, 1.0);\n}\n"
+  }
+}

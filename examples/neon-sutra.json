@@ -1,0 +1,122 @@
+{
+  "meta": {
+    "author": "sh8r",
+    "title": "Neon Sutra",
+    "description": "A mandala of neon rings folding into itself: tiled, mirrored and turned level upon level, sliding between symmetries and pumping outward on every beat.",
+    "tags": [
+      "mandala",
+      "kaleidoscope",
+      "neon",
+      "fractal",
+      "journey",
+      "beat-reactive"
+    ]
+  },
+  "params": [
+    {
+      "name": "drift",
+      "type": "float",
+      "default": 0.25,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Drift",
+      "group": "Journey",
+      "lag": 3,
+      "integrate": "time"
+    },
+    {
+      "name": "kick",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Beat Kick",
+      "group": "Journey",
+      "lag": 2,
+      "integrate": "beat"
+    },
+    {
+      "name": "petals",
+      "type": "int",
+      "default": 4,
+      "min": 1,
+      "max": 12,
+      "step": 1,
+      "label": "Petals",
+      "group": "Mandala"
+    },
+    {
+      "name": "fold",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Fold",
+      "group": "Mandala",
+      "lag": 6
+    },
+    {
+      "name": "zoom",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Zoom",
+      "group": "Mandala",
+      "lag": 6
+    },
+    {
+      "name": "shape",
+      "type": "float",
+      "default": 0.2,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Circle / Square",
+      "group": "Mandala",
+      "lag": 5
+    },
+    {
+      "name": "swirl",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Swirl",
+      "group": "Mandala",
+      "lag": 5
+    },
+    {
+      "name": "rings",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Rings",
+      "group": "Light",
+      "lag": 4
+    },
+    {
+      "name": "colour",
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Colour",
+      "group": "Light",
+      "lag": 4
+    }
+  ],
+  "shader": {
+    "language": "glsl",
+    "entry": "shader",
+    "code": "// Neon Sutra: a mandala that folds space into itself. The plane is mirrored\n// into petals, then repeatedly tiled, mirrored and turned; every level\n// draws glowing rings, and the levels turn at different speeds, so the\n// whole lattice of light keeps sliding through itself and re-locking into\n// new symmetries. Rings pump outward on every beat. In the spirit of\n// kishimisu's \"Introduction to Shader Art Coding\".\n\n#define TAU 6.28318531\n#define PI 3.14159265\n\nmat2 rot(float a) {\n  float c = cos(a);\n  float s = sin(a);\n  return mat2(c, -s, s, c);\n}\n\nvec3 palette(float t) {\n  return 0.5 + 0.5 * cos(TAU * (t + vec3(0.0, 0.33, 0.67)));\n}\n\nvec3 shader(vec2 uv, float time) {\n  float j = drift + kick;\n  vec2 p = (uv - 0.5) * vec2(resolution.x / resolution.y, 1.0) * 2.0;\n\n  // Petals: mirror the plane into wedges.\n  float seg = PI / float(petals);\n  float r0 = length(p);\n  float a = atan(p.y, p.x) + j * 0.021;\n  a = abs(mod(a, 2.0 * seg) - seg);\n  vec2 q = r0 * vec2(cos(a), sin(a));\n  q *= mix(0.6, 2.2, zoom) * (1.0 + 0.15 * sin(j * 0.09));\n  // A slow swirl that tightens towards the centre.\n  q = rot(swirl * 1.5 * sin(j * 0.05) * exp(-r0)) * q;\n  vec2 q0 = q;\n\n  float sc = mix(1.2, 2.1, fold) + 0.08 * sin(j * 0.061);\n  float hue = colour + j * 0.017;\n  vec3 col = vec3(0.0);\n  for (int i = 0; i < 5; i++) {\n    float fi = float(i);\n    // Tile, mirror, re-centre, turn. Mirroring keeps every level seamless.\n    q = abs(fract(q * sc) - 0.5) - 0.25;\n    q = rot(j * 0.023 * (fi + 1.0) + fi * 0.9) * q;\n\n    // Rings morph between circles, diamonds and squares.\n    float form = 0.5 + 0.5 * sin(j * 0.031 + fi * 1.3);\n    float d = mix(length(q), mix(abs(q.x) + abs(q.y), max(abs(q.x), abs(q.y)), form), shape);\n    d *= exp(-length(q0) * 0.55);\n    vec3 c = palette(length(q0) * 0.45 + fi * 0.31 + hue);\n    float freq = mix(5.0, 14.0, rings);\n    d = abs(sin(d * freq - j * 0.7 + fi * 1.7)) / freq;\n    col += c * pow(0.011 / max(d, 2e-4), 1.25) * mix(1.0, 0.5, fold);\n  }\n\n  // Burning core, soft shoulder.\n  col += palette(hue + 0.5) * 0.04 / (r0 * r0 + 0.02);\n  col = 1.0 - exp(-col * 0.9);\n  return clamp(col, 0.0, 1.0);\n}\n"
+  }
+}

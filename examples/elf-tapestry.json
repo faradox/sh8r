@@ -1,0 +1,111 @@
+{
+  "meta": {
+    "author": "sh8r",
+    "title": "Elf Tapestry",
+    "description": "An infinite tunnel walled with living ornament: fractal filigree, lace and jewels that re-weave themselves as every beat pulls you deeper.",
+    "tags": [
+      "fractal",
+      "kali",
+      "tunnel",
+      "ornament",
+      "journey",
+      "beat-reactive"
+    ]
+  },
+  "params": [
+    {
+      "name": "drift",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Drift",
+      "group": "Journey",
+      "lag": 3,
+      "integrate": "time"
+    },
+    {
+      "name": "kick",
+      "type": "float",
+      "default": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Beat Kick",
+      "group": "Journey",
+      "lag": 2,
+      "integrate": "beat"
+    },
+    {
+      "name": "arms",
+      "type": "int",
+      "default": 3,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "label": "Arms",
+      "group": "Tunnel"
+    },
+    {
+      "name": "spiral",
+      "type": "float",
+      "default": 0.15,
+      "min": -1.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Spiral",
+      "group": "Tunnel",
+      "lag": 6
+    },
+    {
+      "name": "scale",
+      "type": "float",
+      "default": 0.35,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Ornament Scale",
+      "group": "Weave",
+      "lag": 6
+    },
+    {
+      "name": "form",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Form",
+      "group": "Weave",
+      "lag": 8
+    },
+    {
+      "name": "colour",
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Colour",
+      "group": "Light",
+      "lag": 4
+    },
+    {
+      "name": "glow",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Glow",
+      "group": "Light",
+      "lag": 3
+    }
+  ],
+  "shader": {
+    "language": "glsl",
+    "entry": "shader",
+    "code": "// Elf Tapestry: an endless tunnel whose walls are woven from a living\n// ornament. The wall pattern is a Kali fractal (fold, invert, shift, again\n// and again), which grows filigree, lace, eyes and scrollwork at every\n// scale; its constant drifts along the journey, so the ornament never\n// stops re-weaving itself. The tunnel is a log-polar map, so the flight\n// inward is truly infinite, and every beat pulls you deeper.\n\n#define TAU 6.28318531\n\nmat2 rot(float a) {\n  float c = cos(a);\n  float s = sin(a);\n  return mat2(c, -s, s, c);\n}\n\nvec3 palette(float t) {\n  return 0.5 + 0.5 * cos(TAU * (t + vec3(0.0, 0.33, 0.67)));\n}\n\nvec3 shader(vec2 uv, float time) {\n  float j = drift + kick;\n  vec2 p = (uv - 0.5) * vec2(resolution.x / resolution.y, 1.0) * 2.0;\n  p = rot(j * 0.013) * p;\n\n  float r = length(p) + 1e-4;\n  // Two mirrored tiles per arm, so the pattern always closes around the wall.\n  float n = 2.0 * float(arms);\n  // Tunnel coordinates: x runs into the depth, y around the wall. Scaling\n  // both by the same factor keeps the ornament undistorted.\n  vec2 q = vec2(log(r), atan(p.y, p.x)) * n / TAU;\n  q.y += q.x * spiral * 0.5;\n  q.x -= j * 0.06;\n\n  // Mirror-tile the wall, then hand each tile to the fractal.\n  vec2 z = abs(fract(q * 0.5) * 2.0 - 1.0) - 0.5;\n  z *= mix(0.45, 1.6, scale);\n  z = rot(j * 0.011) * z;\n\n  // The constant wanders; Form picks the neighbourhood it wanders in.\n  float th = j * 0.017;\n  vec2 c = mix(vec2(0.52, 0.62), vec2(0.95, 0.42), form) +\n    0.14 * vec2(sin(th), cos(th * 1.37)) + 0.06 * vec2(sin(th * 2.9), cos(th * 2.3));\n\n  float hue = colour + j * 0.011;\n  float lineX = 1e3;\n  float lineY = 1e3;\n  float dot2 = 1e3;\n  for (int i = 0; i < 6; i++) {\n    // The clamp limits how hard a fold can magnify, which keeps the\n    // ornament drawn in clean lines instead of dissolving into dust.\n    z = abs(z) / clamp(dot(z, z), 0.22, 6.0) - c;\n    lineX = min(lineX, abs(z.x));\n    lineY = min(lineY, abs(z.y));\n    dot2 = min(dot2, dot(z, z));\n  }\n\n  // Stained glass between the threads, coloured by how the orbit settled.\n  vec3 col = palette(hue + 0.45 * log(dot2 + 0.03) + 0.6 * lineX);\n  col = mix(col, col * col * 1.3, 0.8);\n  // Leading between the panes, along the fold lines.\n  col *= 0.04 + 0.96 * smoothstep(0.0, 0.16, lineX) * smoothstep(0.0, 0.12, lineY);\n  // Gold filigree inside the leading, jewels where the orbit comes home.\n  col += vec3(1.0, 0.75, 0.35) * 0.8 * exp(-70.0 * lineX);\n  col += palette(hue + 0.5) * 0.6 * exp(-70.0 * lineY);\n  col += palette(hue + 0.3 + sqrt(dot2)) * 1.2 * exp(-40.0 * dot2);\n  col *= mix(0.6, 1.9, glow);\n\n  // Depth: the wall dims into the distance and a light burns at the end.\n  float depth = smoothstep(0.0, 0.45, r);\n  col *= 0.15 + 0.85 * depth;\n  // Near the vanishing point the ornament is finer than a pixel.\n  float fine = smoothstep(2.0, 9.0, n / TAU / r * 2.0 / resolution.y * 60.0);\n  col = mix(col, palette(hue + 0.6) * 0.25, fine);\n  col += (palette(hue + 0.15) + 0.4) * 0.018 / (r * r + 0.012);\n\n  col = 1.0 - exp(-col * 1.1);\n  return clamp(col, 0.0, 1.0);\n}\n"
+  }
+}

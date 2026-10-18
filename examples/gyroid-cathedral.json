@@ -1,0 +1,101 @@
+{
+  "meta": {
+    "author": "sh8r",
+    "title": "Gyroid Cathedral",
+    "description": "A flight through an endless twisting gyroid labyrinth with oil-film walls and veins of light that surge forward on every beat.",
+    "tags": [
+      "raymarching",
+      "gyroid",
+      "tunnel",
+      "iridescent",
+      "journey",
+      "beat-reactive"
+    ]
+  },
+  "params": [
+    {
+      "name": "drift",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Drift",
+      "group": "Journey",
+      "lag": 3,
+      "integrate": "time"
+    },
+    {
+      "name": "kick",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Beat Kick",
+      "group": "Journey",
+      "lag": 2,
+      "integrate": "beat"
+    },
+    {
+      "name": "weave",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Lattice",
+      "group": "Space",
+      "lag": 6
+    },
+    {
+      "name": "shell",
+      "type": "float",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Membrane / Rock",
+      "group": "Space",
+      "lag": 6
+    },
+    {
+      "name": "twist",
+      "type": "float",
+      "default": 0.3,
+      "min": -1.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Twist",
+      "group": "Space",
+      "lag": 6
+    },
+    {
+      "name": "colour",
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Colour",
+      "group": "Light",
+      "lag": 4
+    },
+    {
+      "name": "glow",
+      "type": "float",
+      "default": 0.6,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "label": "Veins",
+      "group": "Light",
+      "lag": 3
+    }
+  ],
+  "shader": {
+    "language": "glsl",
+    "entry": "shader",
+    "code": "// Gyroid Cathedral: a flight through an endless gyroid, the minimal surface\n// that splits space into two interlocking labyrinths. A corridor is carved\n// along the camera path so the flight never hits a wall. The walls are an\n// oil-film: their colour depends on the viewing angle, so everything shifts\n// as the camera moves. Light pulses run through veins in the walls and\n// surge forward with every beat.\n//\n// Everything is measured from the camera's depth and the flight is counted\n// in lattice phase, so the numbers stay small all night and changing the\n// lattice rescales space around the viewer instead of a far-away origin.\n\n#define TAU 6.28318531\n\nfloat S;  // lattice frequency\nfloat TH; // wall thickness\nfloat TW; // twist of space per unit of depth\nfloat U;  // distance flown, in lattice phase\n\nmat2 rot(float a) {\n  float c = cos(a);\n  float s = sin(a);\n  return mat2(c, -s, s, c);\n}\n\nvec3 palette(float t) {\n  return 0.5 + 0.5 * cos(TAU * (t + vec3(0.0, 0.33, 0.67)));\n}\n\nvec2 path(float u) {\n  return vec2(sin(u * 0.08) * 0.5 + sin(u * 0.033) * 0.3, cos(u * 0.06) * 0.5);\n}\n\n// x: the gyroid, y: a finer gyroid riding on it (surface relief and veins).\nvec2 field(vec3 p) {\n  p.xy = rot(p.z * TW) * p.xy;\n  vec3 q = p * S;\n  q.z += mod(U, TAU);\n  float g = dot(sin(q), cos(q.yzx));\n  float f = dot(sin(q * 3.0 + g), cos(q.zxy * 3.0));\n  return vec2(g, f);\n}\n\nfloat map(vec3 p) {\n  vec2 f = field(p);\n  float d = (abs(f.x) - TH) / S - f.y * 0.012;\n  // Smooth-subtract the corridor around the camera path.\n  float tube = 0.42 - length(p.xy - path(U + p.z * S));\n  float k = 0.3;\n  float h = clamp(0.5 + 0.5 * (tube - d) / k, 0.0, 1.0);\n  return mix(d, tube, h) + k * h * (1.0 - h);\n}\n\nvec3 normalAt(vec3 p, float eps) {\n  vec2 e = vec2(1.0, -1.0) * eps;\n  return normalize(\n    e.xyy * map(p + e.xyy) + e.yyx * map(p + e.yyx) +\n    e.yxy * map(p + e.yxy) + e.xxx * map(p + e.xxx)\n  );\n}\n\nvec3 shader(vec2 uv, float time) {\n  float j = drift + kick;\n  vec2 p = (uv - 0.5) * vec2(resolution.x / resolution.y, 1.0) * 2.0;\n\n  S = mix(2.0, 6.0, weave);\n  TH = mix(0.04, 1.1, shell) * (1.0 + 0.12 * sin(j * 0.11));\n  TW = twist * 0.6;\n  float hue = colour + j * 0.011;\n\n  U = j * 3.0;\n  vec3 ro = vec3(path(U), 0.0);\n  vec3 fw = normalize(vec3(path(U + S), 1.0) - ro);\n  vec3 rt = normalize(cross(vec3(0.0, 1.0, 0.0), fw));\n  vec3 up = cross(fw, rt);\n  p = rot(0.7 * sin(j * 0.05)) * p;\n  vec3 rd = normalize(fw + (p.x * rt + p.y * up) * 0.9);\n\n  float t = 0.05;\n  float haze = 0.0;\n  float hit = 0.0;\n  for (int i = 0; i < 72; i++) {\n    float d = map(ro + rd * t);\n    haze += exp(-10.0 * abs(d));\n    if (d < 0.0012 * t + 0.0004) {\n      hit = 1.0;\n      break;\n    }\n    t += d * 0.6;\n    if (t > 12.0) break;\n  }\n\n  vec3 fogCol = palette(hue + 0.55 + 0.12 * rd.y) * 0.07;\n  vec3 col = fogCol;\n  if (hit > 0.5) {\n    vec3 pos = ro + rd * t;\n    vec3 n = normalAt(pos, 0.002 + 0.0015 * t);\n    vec2 f = field(pos);\n    float facing = max(dot(n, -rd), 0.0);\n\n    // Oil film: hue follows the viewing angle and the relief.\n    float film = facing * 0.9 + f.y * 0.2 + pos.z * 0.06;\n    vec3 base = palette(hue + film);\n\n    // A lamp travelling just ahead of the camera.\n    vec3 ld = ro + fw * 1.5 - pos;\n    float ll = length(ld);\n    ld /= ll;\n    float fall = 1.0 / (1.0 + 0.12 * ll * ll);\n    float dif = max(dot(n, ld), 0.0) * fall;\n    float spec = pow(max(dot(reflect(rd, n), ld), 0.0), 20.0) * fall;\n\n    // ... and a weaker one on the camera itself, for the walls beside it.\n    float head = facing / (1.0 + 0.15 * t * t);\n\n    col = base * (0.1 + 1.5 * dif + 0.5 * head) + spec * 0.7;\n    col += palette(hue + film + 0.3) * pow(1.0 - facing, 3.0) * 0.7;\n\n    // Veins along the zero lines of the fine field carry pulses of light.\n    float vein = smoothstep(0.14 + 0.04 * t, 0.0, abs(f.y));\n    float wave = pow(0.5 + 0.5 * sin(pos.z * 1.3 - j * 2.5), 6.0);\n    col += palette(hue + 0.5 + pos.z * 0.04) * vein * (0.45 + 2.0 * wave) * glow;\n\n    col = mix(fogCol, col, exp(-0.018 * t * t));\n  }\n  col += palette(hue + 0.25) * haze * 0.012 * glow;\n\n  col *= 1.0 - 0.3 * smoothstep(0.5, 1.6, length(p));\n  return clamp(col, 0.0, 1.0);\n}\n"
+  }
+}
