@@ -8,6 +8,9 @@ gid := $(shell id -g)
 
 PROJECT_NAME := sh8r
 
+# `make run localdb=1` also starts the bundled Postgres (profile localdb).
+PROD_PROFILES := --profile prod $(if $(localdb),--profile localdb)
+
 setup: build
 	@echo "sh8r production setup complete."
 
@@ -62,12 +65,13 @@ run:
 		echo "Production images not found. Building..."; \
 		$(MAKE) build; \
 	fi
-	docker compose -p $(PROJECT_NAME) --profile prod up -d
+	docker compose -p $(PROJECT_NAME) $(PROD_PROFILES) up -d
 
 stop:
 	@echo "Stopping sh8r services..."
 	@docker compose -p $(PROJECT_NAME) --profile dev down 2>/dev/null || true
 	@docker compose -p $(PROJECT_NAME) --profile prod down 2>/dev/null || true
+	@docker compose -p $(PROJECT_NAME) --profile localdb down 2>/dev/null || true
 	@echo "All services stopped."
 
 help:
@@ -84,7 +88,7 @@ help:
 	@echo '  build-dev           - Build development images'
 	@echo ''
 	@echo 'Run Commands:'
-	@echo '  run                 - Run in production mode'
+	@echo '  run                 - Run in production mode (localdb=1: bundled Postgres)'
 	@echo '  run-dev             - Run in development mode with hot-reload'
 	@echo ''
 	@echo 'Logging Commands:'

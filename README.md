@@ -70,11 +70,11 @@ location /ws {
 location / { proxy_pass http://127.0.0.1:8080; }
 ```
 
-On breathdance the same paths sit behind Authelia (sh8r block in the
-monorepo's `configs/etc/nginx/sites-available/breathdance.conf`; `auth_request`
-cannot sit inside `limit_except`, so an Authelia rule bypasses GET/HEAD/OPTIONS
-on `^/api/` instead). Container ports are bound to 127.0.0.1, so the backend
-cannot be reached around the proxy.
+With a login proxy such as Authelia via nginx `auth_request`, protect the
+same paths; `auth_request` cannot sit inside `limit_except`, so send every
+`/api/` request to the proxy and let it bypass GET/HEAD/OPTIONS on `^/api/`.
+Container ports are bound to 127.0.0.1, so the backend cannot be reached
+around the proxy.
 
 ## Tests
 
@@ -95,13 +95,31 @@ Services run on:
 - Frontend: `http://localhost:${SH8R_FRONTEND_DEV_PORT:-3000}`
 - Backend API: `http://localhost:${SH8R_BACKEND_DEV_PORT:-3001}`
 - WebSocket: `ws://localhost:${SH8R_BACKEND_DEV_PORT:-3001}/ws`
+- Postgres (`db` service): `localhost:${SH8R_POSTGRES_PORT:-5432}`
 
 ### Without Docker
 
+The backend needs Postgres; `docker compose -p sh8r --profile localdb up -d db`
+starts the bundled one.
+
 ```bash
-cd backend && npm install && npm run dev
-cd ../frontend && npm install && npm run dev
+cd backend && npm install
+DATABASE_URL=postgresql://sh8r:sh8r@localhost:5432/sh8r npm run dev
+cd ../frontend && npm install
+VITE_API_URL=http://localhost:3001 VITE_WS_URL=ws://localhost:3001/ws npm run dev
 ```
+
+## Production
+
+```bash
+make setup
+make run localdb=1   # with the bundled Postgres (profile localdb)
+make run             # or with your own Postgres: set SH8R_DATABASE_URL first
+```
+
+Frontend and backend listen on `127.0.0.1:${SH8R_FRONTEND_PORT:-8080}` and
+`127.0.0.1:${SH8R_BACKEND_PORT:-3001}`; put a reverse proxy in front as in
+[Access control](#access-control).
 
 ## Environment variables (host-level)
 
@@ -113,14 +131,18 @@ All variables are prefixed with `SH8R_` when supplied by the host.
 - `SH8R_FRONTEND_DEV_PORT` - Frontend dev port (default: 3000)
 - `SH8R_BACKEND_PORT` - Backend prod port (default: 3001)
 - `SH8R_BACKEND_DEV_PORT` - Backend dev port (default: 3001)
-- `SH8R_DATABASE_URL` - Backend database URL
-- `SH8R_POSTGRES_USER` - Local postgres user (dev profile)
-- `SH8R_POSTGRES_PASSWORD` - Local postgres password (dev profile)
-- `SH8R_POSTGRES_DB` - Local postgres database (dev profile)
-- `SH8R_POSTGRES_PORT` - Local postgres port (dev profile)
+- `SH8R_DATABASE_URL` - Backend database URL (default: bundled `db` service,
+  `postgresql://sh8r:sh8r@db:5432/sh8r`)
+- `SH8R_POSTGRES_USER` - Bundled postgres user (dev/localdb profiles)
+- `SH8R_POSTGRES_PASSWORD` - Bundled postgres password (dev/localdb profiles)
+- `SH8R_POSTGRES_DB` - Bundled postgres database (dev/localdb profiles)
+- `SH8R_POSTGRES_PORT` - Bundled postgres port on 127.0.0.1 (dev/localdb profiles)
 - `SH8R_ENVIRONMENT` - Runtime environment label
 - `SH8R_LOG_LEVEL` - Backend log level
-- `SH8R_DOCKER_NETWORK_NAME` - Docker network name
+
+Host-specific wiring (an external Docker network, a shared database) belongs
+in an untracked `docker-compose.override.yml`, which Docker Compose loads
+automatically.
 
 ## Layout
 
