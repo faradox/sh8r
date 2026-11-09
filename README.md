@@ -33,16 +33,48 @@ Clients reconnect automatically after server restarts or network drops.
 
 ## Access control
 
-Auth is handled by the reverse proxy (see the sh8r block in the monorepo's
-`configs/etc/nginx/sites-available/breathdance.conf`):
+sh8r has no login of its own and no auth flag: the backend accepts every
+request. Who may control the show is decided by the reverse proxy in front,
+so any login works, or none:
 
-- Public: `/live`, `/debug`, `GET /api/*` and the `/ws` socket. The socket is
+- **No auth** (party on a trusted network): expose it as is. Anyone who can
+  open `/vj` can drive the screens.
+- **Any proxy login**: protect the control paths below with nginx
+  `auth_basic`, Authelia, oauth2-proxy, ... Public:
+  `/live`, `/debug`, `GET /api/*` and the `/ws` socket. The socket is
   read-only; it only answers clock pings, so viewers cannot change the show.
-- Behind basic auth: the `/vj` and `/submit` pages and every non-GET API call.
-  VJ commands (param changes, shader/preset selection, tempo) are sent as
-  `POST /api/control`, so they carry the browser's cached login.
-- Container ports are bound to 127.0.0.1, so the backend cannot be reached
-  around the proxy.
+  Protected: the `/vj` and `/submit` pages and every non-GET API call. VJ
+  commands (param changes, shader/preset selection, tempo) are sent as
+  `POST /api/control`, so they carry the browser's login (cached basic auth
+  or session cookie). A `401` from the API shows "log in via the VJ page".
+
+Minimal nginx with basic auth (`htpasswd -c /etc/nginx/.htpasswd-sh8r vj`):
+
+```nginx
+location ~ ^/(vj|submit) {
+    auth_basic "sh8r"; auth_basic_user_file /etc/nginx/.htpasswd-sh8r;
+    proxy_pass http://127.0.0.1:8080;
+}
+location /api/ {
+    limit_except GET HEAD OPTIONS {
+        auth_basic "sh8r"; auth_basic_user_file /etc/nginx/.htpasswd-sh8r;
+    }
+    proxy_pass http://127.0.0.1:3001;
+}
+location /ws {
+    proxy_pass http://127.0.0.1:3001;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+location / { proxy_pass http://127.0.0.1:8080; }
+```
+
+On breathdance the same paths sit behind Authelia (sh8r block in the
+monorepo's `configs/etc/nginx/sites-available/breathdance.conf`; `auth_request`
+cannot sit inside `limit_except`, so an Authelia rule bypasses GET/HEAD/OPTIONS
+on `^/api/` instead). Container ports are bound to 127.0.0.1, so the backend
+cannot be reached around the proxy.
 
 ## Tests
 
